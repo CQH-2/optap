@@ -1,6 +1,8 @@
 package com.iimsoft.scheduler;
 
 import com.iimsoft.scheduler.domain.*;
+import com.iimsoft.scheduler.util.HourSlotGenerator;
+import com.iimsoft.scheduler.util.WorkingHours;
 import org.optaplanner.core.api.solver.Solver;
 import org.optaplanner.core.api.solver.SolverFactory;
 
@@ -30,42 +32,36 @@ public class ProductionPlannerApp {
         // 3) 产线与速率（分钟/件）
         Line l1 = new Line(1L, "L1");
         l1.getSupportedRouters().add(rAsm);
-        l1.getMinutesPerUnitByRouter().put(rAsm, 2);
+        l1.getMinutesPerUnitByRouter().put(rAsm, 100);
 
         Line l2 = new Line(2L, "L2");
         l2.getSupportedRouters().add(rFab);
-        l2.getMinutesPerUnitByRouter().put(rFab, 1);
+        l2.getMinutesPerUnitByRouter().put(rFab, 100);
 
         List<Item> items = Arrays.asList(a, b, c);
         List<Router> routers = Arrays.asList(rAsm, rFab);
         List<Line> lines = Arrays.asList(l1, l2);
 
-        // 4) 每小时槽位（示例：未来 10 天，工作时段 8:00-17:00）
-        LocalDate startDay = LocalDate.now();
-        int days = 10;
-        List<LineHourSlot> hourSlots = new ArrayList<>();
-        long baseId = 10_000L;
-        for (int i = 0; i < days; i++) {
-            LocalDate d = startDay.plusDays(i);
-            for (Line line : lines) {
-                for (int h = 8; h < 17; h++) { // 8..16
-                    hourSlots.add(new LineHourSlot(baseId++, line, d, h));
-                }
-            }
-        }
-
-        // 5) BOM：A = 2*B + 3*C（子件需比父件早1天到位）
+        // 4) BOM：A = 2*B + 3*C（子件需比父件早1天到位）
         List<BomComponent> bom = Arrays.asList(
                 new BomComponent(1L, a, b, 2, 1),
                 new BomComponent(2L, a, c, 3, 1)
         );
 
-        // 6) 顶层需求
-        LocalDate due = startDay.plusDays(days);
+        // 5) 顶层需求（示例）
+        LocalDate today = LocalDate.now();
+        LocalDate due = today.plusDays(2);
         List<Demand> demands = Collections.singletonList(new Demand(10001L, a, 200, due));
 
-        // 7) 将需求按 BOM 展开 → Requirement 列表
+        // 6) 将需求按 BOM 展开 → Requirement 列表
         List<Requirement> requirements = explodeDemandsToRequirements(demands, bom);
+
+        // 7) “倒推固定2天”的小时槽位：以最大交期为结束，窗口仅覆盖2天
+        WorkingHours workingHours = new WorkingHours(8, 17); // 工作时段 8:00-17:00
+        long baseId = 10_000L;                               // 槽位起始ID
+        List<LineHourSlot> hourSlots = HourSlotGenerator.buildBackwardSlotsForDays(
+                lines, requirements, workingHours, 2, baseId
+        );
 
         // 8) 为每个小时槽位创建一个 HourPlan（变量 item、quantity 由求解器决定）
         List<HourPlan> plans = new ArrayList<>();
@@ -95,23 +91,23 @@ public class ProductionPlannerApp {
         // 11) 输出
         System.out.println("最佳分数 = " + best.getScore());
 
-        // 按日期-产线-小时输出
+        // 按日期-产线-小时输出（正序展示，便于阅读）
         best.getPlanList().stream()
                 .sorted(Comparator.<HourPlan, LocalDate>comparing(p -> p.getSlot().getDate())
                         .thenComparing(p -> p.getLine().getName())
                         .thenComparingInt(p -> p.getSlot().getHourOfDay()))
                 .forEach(p -> {
-                    String date = p.getSlot().getDate().toString();
+                    String dateStr = p.getSlot().getDate().toString();
                     String lineName = p.getLine().getName();
                     int h = p.getSlot().getHourOfDay();
-                    String itemCode = p.getItem() == null ? "-" : p.getItem().getCode();
                     int qty = p.getQuantity() == null ? 0 : p.getQuantity();
-                    System.out.printf("%s %s %02d:00 - item=%s, qty=%d%n", date, lineName, h, itemCode, qty);
+                    String itemCode = (qty > 0 && p.getItem() != null) ? p.getItem().getCode() : "-";
+                    System.out.printf("%s %s %02d:00 - item=%s, qty=%d%n", dateStr, lineName, h, itemCode, qty);
                 });
 
         // 汇总对比：按物料累计总量
         Map<Item, Integer> producedByItem = best.getPlanList().stream()
-                .filter(p -> p.getItem() != null && p.getQuantity() != null)
+                .filter(p -> p.getItem() != null && p.getQuantity() != null && p.getQuantity() > 0)
                 .collect(Collectors.groupingBy(HourPlan::getItem, Collectors.summingInt(HourPlan::getQuantity)));
 
         System.out.println("\n产出汇总（按物料）");

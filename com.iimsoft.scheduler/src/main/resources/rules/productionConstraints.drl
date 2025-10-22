@@ -3,18 +3,27 @@ dialect "java"
 
 import com.iimsoft.scheduler.domain.HourPlan
 import com.iimsoft.scheduler.domain.Line
-import com.iimsoft.scheduler.domain.LineHourSlot
 import com.iimsoft.scheduler.domain.Requirement
 import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScoreHolder
 
 global HardSoftScoreHolder scoreHolder
 
-// 硬约束：无物料时数量必须为 0
+// 硬约束：无物料时数量必须为 0（修正绑定写法）
 rule "Zero quantity when no item"
 when
-    HourPlan($item : item == null, $q : quantity != null && quantity.intValue() > 0)
+    HourPlan(item == null, $q : quantity)
+    eval($q != null && $q.intValue() > 0)
 then
-    scoreHolder.addHardConstraintMatch(kcontext, -$q);
+    scoreHolder.addHardConstraintMatch(kcontext, -$q.intValue());
+end
+
+// 新增硬约束：有物料则数量必须 > 0；数量 <= 0 时不能安排物料
+rule "Item requires positive quantity"
+when
+    HourPlan(item != null, $q : quantity)
+    eval($q == null || $q.intValue() <= 0)
+then
+    scoreHolder.addHardConstraintMatch(kcontext, -1);
 end
 
 // 硬约束：产线必须支持该物料

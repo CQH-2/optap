@@ -24,7 +24,7 @@ public class Line {
         return supportedRouters.contains(router) && minutesPerUnitByRouter.containsKey(router);
     }
 
-    // 新增：产线是否支持某物料（存在支持该物料的工艺，且配置了速率）
+    // 产线是否支持某物料（存在支持该物料的工艺，且配置了速率）
     public boolean supportsItem(Item item) {
         if (item == null) return false;
         for (Map.Entry<Router, Integer> e : minutesPerUnitByRouter.entrySet()) {
@@ -36,7 +36,7 @@ public class Line {
         return false;
     }
 
-    // 新增：给定物料，取本产线所有可用工艺的最小分钟/件；无支持时返回大数
+    // 给定物料，取本产线所有可用工艺的最小分钟/件；无支持时返回大数
     public int getMinutesPerUnitForItem(Item item) {
         if (item == null) return Integer.MAX_VALUE / 4;
         int best = Integer.MAX_VALUE / 4;
@@ -61,6 +61,41 @@ public class Line {
         }
         return v;
     }
+
+    // ========== 新增：按小时产能（件/小时）的便捷接口 ==========
+    // 写入：以“件/小时”设置速率，内部转换为“分钟/件”（向上取整，保守不过载）
+    public void putUnitsPerHour(Router router, int unitsPerHour) {
+        if (router == null) throw new IllegalArgumentException("router is null");
+        if (unitsPerHour <= 0) throw new IllegalArgumentException("unitsPerHour must be > 0");
+        // 分钟/件 = ceil(60 / 件/小时)
+        int minutesPerUnit = (int) Math.ceil(60.0 / unitsPerHour);
+        minutesPerUnitByRouter.put(router, Math.max(1, minutesPerUnit));
+    }
+
+    // 读取：将内部“分钟/件”换算为“件/小时”（向下取整，避免报超能力）
+    public int getUnitsPerHour(Router router) {
+        Integer mpu = minutesPerUnitByRouter.get(router);
+        if (mpu == null || mpu <= 0 || !supportedRouters.contains(router)) {
+            return 0;
+        }
+        return Math.max(0, 60 / mpu); // floor
+    }
+
+    // 给定物料的“件/小时”能力（若多条工艺可做，取能力上限）
+    public int getUnitsPerHourForItem(Item item) {
+        if (item == null) return 0;
+        int best = 0;
+        for (Map.Entry<Router, Integer> e : minutesPerUnitByRouter.entrySet()) {
+            Router r = e.getKey();
+            Integer mpu = e.getValue();
+            if (mpu != null && mpu > 0 && supportedRouters.contains(r) && r.supports(item)) {
+                int uph = 60 / mpu; // floor
+                if (uph > best) best = uph;
+            }
+        }
+        return best;
+    }
+    // =====================================================
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
