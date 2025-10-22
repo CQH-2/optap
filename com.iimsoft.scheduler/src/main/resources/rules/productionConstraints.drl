@@ -26,22 +26,22 @@ then
     scoreHolder.addHardConstraintMatch(kcontext, -1);
 end
 
-// 硬约束：槽位产能不能超
-rule "Slot capacity must not be exceeded"
+// 硬约束：槽位分钟容量不能超（sum(requiredMinutes) ≤ slot.durationMinutes）
+rule "Slot time capacity must not be exceeded"
 when
     $slot : LineShiftSlot()
     $sum : Number() from accumulate(
-        TaskPart(slot == $slot, $q : quantity),
-        sum($q)
+        TaskPart(slot == $slot, $req : requiredMinutes),
+        sum($req)
     )
-    eval($sum.intValue() > $slot.getCapacityUnits())
+    eval($sum.intValue() > ($slot.getEndMinuteOfDay() - $slot.getStartMinuteOfDay()))
 then
-    int over = $sum.intValue() - $slot.getCapacityUnits();
+    int duration = $slot.getEndMinuteOfDay() - $slot.getStartMinuteOfDay();
+    int over = $sum.intValue() - duration;
     scoreHolder.addHardConstraintMatch(kcontext, -over);
 end
 
-// 新增硬约束：同一槽位内禁止混工艺（一个槽位只能跑一种 Router）
-// 若发现同一槽位内存在多个不同 Router，则按超出1种的数量进行硬罚
+// 硬约束：同一槽位内禁止混工艺（一个槽位只能跑一种 Router）
 rule "Single router per slot (no mixing within a slot)"
 when
     $slot : LineShiftSlot()
@@ -55,14 +55,6 @@ then
     scoreHolder.addHardConstraintMatch(kcontext, -overKinds);
 end
 
-// 软约束：越早的槽位越优（全局尽量提前完工）
-rule "Prefer earlier slot (by end time)"
-when
-    TaskPart(slot != null, $end : slot.endIndex)
-then
-    scoreHolder.addSoftConstraintMatch(kcontext, - (int)$end);
-end
-
 // 软约束：交期迟期惩罚（从 TaskPart.task 读取交期）
 rule "Minimize tardiness (due date)"
 when
@@ -71,6 +63,15 @@ when
 then
     int late = (int)($end - $due.longValue());
     scoreHolder.addSoftConstraintMatch(kcontext, -late);
+end
+
+// 软约束：夜班惩罚（让系统“优先白班，容量不够时才用夜班”）
+// 简化判断：开始时间 >= 18:00 视为夜班。可根据你的实际班次字段替换。
+rule "Penalize night shift usage"
+when
+    TaskPart(slot != null, $startMin : slot.startMinuteOfDay, eval($startMin >= (18 * 60)))
+then
+    scoreHolder.addSoftConstraintMatch(kcontext, -100); // 权重可调
 end
 
 // 软约束：同一条产线的负载尽量均衡（平方惩罚）

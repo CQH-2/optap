@@ -5,9 +5,9 @@ import java.time.LocalDate;
 public class LineShiftSlot {
     private Long id;
     private Line line;
-    private LocalDate date;          // 生产日期
+    private LocalDate date;          // 班次开始所在的生产日期
     private int startMinuteOfDay;    // 班段开始分钟（0..1439）
-    private int endMinuteOfDay;      // 班段结束分钟（1..1440）
+    private int endMinuteOfDay;      // 班段结束分钟（1..1440）。若跨天，end < start 表示次日的该分钟
     private int capacityUnits;       // 本班段可生产的单位数（与 Task.quantity 单位一致）
 
     public LineShiftSlot() {}
@@ -34,17 +34,35 @@ public class LineShiftSlot {
     public int getCapacityUnits() { return capacityUnits; }
     public void setCapacityUnits(int capacityUnits) { this.capacityUnits = capacityUnits; }
 
-    // 用于“越早越好”软约束的时间权重（日期 + 日内分钟）
+    // 是否跨天（结束分钟小于开始分钟则视为跨天到次日）
+    public boolean isCrossDay() {
+        return endMinuteOfDay < startMinuteOfDay;
+    }
+
+    // 槽位时长（分钟）。跨天时 = (24h - start) + end
+    public int getDurationMinutes() {
+        int d = endMinuteOfDay - startMinuteOfDay;
+        return d >= 0 ? d : d + 24 * 60;
+    }
+
+    // 时间轴起点：以“date 的 00:00”为基准的分钟索引
     public long getStartIndex() {
         return date.toEpochDay() * 24L * 60L + startMinuteOfDay;
     }
 
+    // 时间轴终点：跨天则推进到“次日”的分钟索引
     public long getEndIndex() {
-        return date.toEpochDay() * 24L * 60L + endMinuteOfDay;
+        long base = date.toEpochDay() * 24L * 60L;
+        if (isCrossDay()) {
+            return base + 24L * 60L + endMinuteOfDay; // 次日 endMinuteOfDay
+        } else {
+            return base + endMinuteOfDay;
+        }
     }
 
     @Override
     public String toString() {
-        return line.getName() + "@" + date + " " + startMinuteOfDay + "-" + endMinuteOfDay;
+        String cross = isCrossDay() ? " (跨天)" : "";
+        return line.getName() + "@" + date + " " + startMinuteOfDay + "-" + endMinuteOfDay + cross;
     }
 }

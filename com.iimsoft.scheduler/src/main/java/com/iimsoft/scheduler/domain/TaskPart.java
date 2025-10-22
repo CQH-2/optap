@@ -47,4 +47,14 @@ public class TaskPart {
 
     // 便捷访问：物料（来自 Task）
     public Item getItem() { return task == null ? null : task.getItem(); }
+
+    // 新增：按“产线×工艺节拍”计算本分片占用的分钟数
+    public int getRequiredMinutes() {
+        if (slot == null || router == null) {
+            return 0;
+        }
+        int mpu = slot.getLine().getMinutesPerUnit(router); // 分钟/件
+        long req = (long) mpu * (long) quantity;
+        return req > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) req;
+    }
 }
