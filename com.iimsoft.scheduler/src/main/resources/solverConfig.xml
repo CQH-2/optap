@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<solver>
+    <solutionClass>com.iimsoft.scheduler.domain.ProductionSchedule</solutionClass>
+    <entityClass>com.iimsoft.scheduler.domain.Task</entityClass>
+
+    <scoreDirectorFactory>
+        <!-- JDK 1.8 建议使用 DRL -->
+        <scoreDrl>rules/productionConstraints.drl</scoreDrl>
+    </scoreDirectorFactory>
+
+    <termination>
+        <secondsSpentLimit>10</secondsSpentLimit>
+    </termination>
+</solver>

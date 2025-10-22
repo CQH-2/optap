@@ -1,0 +1,62 @@
+package com.iimsoft.scheduler.rules
+dialect "java"
+
+import com.iimsoft.scheduler.domain.Task
+import com.iimsoft.scheduler.domain.Router
+import com.iimsoft.scheduler.domain.Line
+import com.iimsoft.scheduler.domain.LineShiftSlot
+
+import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScoreHolder
+
+global HardSoftScoreHolder scoreHolder
+
+// 硬约束：选定槽位的产线必须支持所选工艺
+rule "Line must support router"
+when
+    Task(slot != null, router != null, $slot : slot, $router : router, eval(!$slot.getLine().supports($router)))
+then
+    scoreHolder.addHardConstraintMatch(kcontext, -1);
+end
+
+// 硬约束：工艺必须支持该物料
+rule "Router must support item"
+when
+    Task(router != null, item != null, $router : router, $item : item, eval(!$router.supports($item)))
+then
+    scoreHolder.addHardConstraintMatch(kcontext, -1);
+end
+
+// 硬约束：槽位产能不能超
+rule "Slot capacity must not be exceeded"
+when
+    $slot : LineShiftSlot()
+    $sum : Number() from accumulate(
+        Task(slot == $slot, $q : quantity),
+        sum($q)
+    )
+    eval($sum.intValue() > $slot.getCapacityUnits())
+then
+    int over = $sum.intValue() - $slot.getCapacityUnits();
+    scoreHolder.addHardConstraintMatch(kcontext, -over);
+end
+
+// 软约束：越早的槽位越优（全局尽量提前完工）
+rule "Prefer earlier slot (by end time)"
+when
+    Task(slot != null, $end : slot.endIndex)
+then
+    scoreHolder.addSoftConstraintMatch(kcontext, - (int)$end);
+end
+
+// 软约束：同一条产线的负载尽量均衡（平方惩罚）
+rule "Balance line load"
+when
+    $line : Line()
+    $sum : Number() from accumulate(
+        Task(slot != null, $line == getLine(), $q : quantity),
+        sum($q)
+    )
+then
+    int load = $sum.intValue();
+    scoreHolder.addSoftConstraintMatch(kcontext, -(load * load));
+end
