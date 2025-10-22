@@ -46,17 +46,22 @@ public class HourPlan {
     public Long getStartIndex() { return slot == null ? null : slot.getStartIndex(); }
     public Long getEndIndex() { return slot == null ? null : slot.getEndIndex(); }
 
-    // 占用分钟数（产线 × 物料的最优工艺节拍）
+    // 保留：分钟占用（如需回退到按分钟容量时可继续使用）
     public int getRequiredMinutes() {
         if (slot == null || item == null || quantity == null || quantity <= 0) {
             return 0;
         }
-        // 关键：不支持该物料时返回 0，避免与“产线必须支持物料”硬约束产生双重惩罚
         if (!slot.getLine().supportsItem(item)) {
             return 0;
         }
         int mpu = slot.getLine().getMinutesPerUnitForItem(item); // 分钟/件
         long req = (long) mpu * (long) quantity;
         return req > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) req;
+    }
+
+    // 新增：本槽位对应产线-物料的“件/小时”能力（用于容量约束）
+    public int getHourCapacityUnits() {
+        if (slot == null || item == null) return 0;
+        return slot.getLine().getUnitsPerHourForItem(item);
     }
 }

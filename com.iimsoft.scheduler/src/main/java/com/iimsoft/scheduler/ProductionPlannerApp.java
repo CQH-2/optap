@@ -29,14 +29,14 @@ public class ProductionPlannerApp {
         rFab.getSupportedItems().add(b);   // B 用加工
         rFab.getSupportedItems().add(c);   // C 用加工
 
-        // 3) 产线与速率（分钟/件）
+        // 3) 产线与速率（按“件/小时”配置，更直观）
         Line l1 = new Line(1L, "L1");
         l1.getSupportedRouters().add(rAsm);
-        l1.getMinutesPerUnitByRouter().put(rAsm, 100);
+        l1.putUnitsPerHour(rAsm, 30); // 每小时 30 件
 
         Line l2 = new Line(2L, "L2");
         l2.getSupportedRouters().add(rFab);
-        l2.getMinutesPerUnitByRouter().put(rFab, 100);
+        l2.putUnitsPerHour(rFab, 60); // 每小时 60 件
 
         List<Item> items = Arrays.asList(a, b, c);
         List<Router> routers = Arrays.asList(rAsm, rFab);
@@ -80,7 +80,9 @@ public class ProductionPlannerApp {
         problem.setDemandList(demands);
         problem.setRequirementList(requirements);
         problem.setPlanList(plans);
-        problem.setMaxQuantityPerHour(200); // 可按需调整
+
+        // 与件/小时能力相匹配的数量上限（不必太大，缩小搜索空间）
+        problem.setMaxQuantityPerHour(60);
 
         // 10) 求解
         SolverFactory<ProductionSchedule> factory =

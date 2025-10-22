@@ -8,7 +8,7 @@ import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScoreHolder
 
 global HardSoftScoreHolder scoreHolder
 
-// 硬约束：无物料时数量必须为 0（修正绑定写法）
+// 硬约束：无物料时数量必须为 0
 rule "Zero quantity when no item"
 when
     HourPlan(item == null, $q : quantity)
@@ -17,7 +17,7 @@ then
     scoreHolder.addHardConstraintMatch(kcontext, -$q.intValue());
 end
 
-// 新增硬约束：有物料则数量必须 > 0；数量 <= 0 时不能安排物料
+// 硬约束：有物料则数量必须 > 0；数量 <= 0 时不能安排物料
 rule "Item requires positive quantity"
 when
     HourPlan(item != null, $q : quantity)
@@ -34,13 +34,16 @@ then
     scoreHolder.addHardConstraintMatch(kcontext, -1);
 end
 
-// 硬约束：小时容量不能超（数量 × 分钟/件 ≤ 60）
-rule "Hour capacity must not be exceeded"
+// 硬约束（改为件/小时能力）：数量 ≤ 产线对该物料的“件/小时”能力
+rule "Hourly quantity must not exceed units-per-hour capacity"
 when
-    $hp : HourPlan($reqMin : requiredMinutes, slot != null, $slot : slot, eval($reqMin > $slot.getDurationMinutes()))
+    $hp : HourPlan(item != null, $line : slot.line, $item : item, $q : quantity)
+    eval($q != null && $q.intValue() > 0)
+    eval($q.intValue() > $line.getUnitsPerHourForItem($item))
 then
-    int over = $hp.getRequiredMinutes() - $slot.getDurationMinutes();
-    scoreHolder.addHardConstraintMatch(kcontext, -over);
+    int cap = $line.getUnitsPerHourForItem($item);
+    int excess = $q.intValue() - cap;
+    scoreHolder.addHardConstraintMatch(kcontext, -excess);
 end
 
 // 硬约束：按交期满足需求（到期前累积产出必须 ≥ 需求）
