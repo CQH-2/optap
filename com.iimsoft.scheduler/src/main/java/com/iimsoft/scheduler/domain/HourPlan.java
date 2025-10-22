@@ -51,6 +51,10 @@ public class HourPlan {
         if (slot == null || item == null || quantity == null || quantity <= 0) {
             return 0;
         }
+        // 关键：不支持该物料时返回 0，避免与“产线必须支持物料”硬约束产生双重惩罚
+        if (!slot.getLine().supportsItem(item)) {
+            return 0;
+        }
         int mpu = slot.getLine().getMinutesPerUnitForItem(item); // 分钟/件
         long req = (long) mpu * (long) quantity;
         return req > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) req;
