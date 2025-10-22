@@ -63,7 +63,7 @@ rule "Balance line load"
 when
     $line : Line()
     $sum : Number() from accumulate(
-        HourPlan(slot.line == $line, $q : quantity != null ? quantity.intValue() : 0),
+        HourPlan(slot.line == $line, quantity != null, $q : quantity),
         sum($q)
     )
 then

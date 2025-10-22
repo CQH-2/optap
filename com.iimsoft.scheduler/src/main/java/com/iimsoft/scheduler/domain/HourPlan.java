@@ -2,9 +2,11 @@ package com.iimsoft.scheduler.domain;
 
 import org.optaplanner.core.api.domain.entity.PlanningEntity;
 import org.optaplanner.core.api.domain.variable.PlanningVariable;
+import org.optaplanner.core.api.domain.lookup.PlanningId;
 
 @PlanningEntity
 public class HourPlan {
+    @PlanningId
     private Long id;
 
     // 固定事实：该规划位对应的产线-日期-小时
