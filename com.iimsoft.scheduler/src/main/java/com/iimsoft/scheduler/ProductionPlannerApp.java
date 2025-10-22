@@ -30,13 +30,14 @@ public class ProductionPlannerApp {
         rFab.getSupportedItems().add(b);   // B 用加工
         rFab.getSupportedItems().add(c);   // C 用加工
 
-        // 3) 产线与支持的工艺
+        // 3) 产线与支持的工艺 + 速率（分钟/件）
         Line l1 = new Line(1L, "L1");
         l1.getSupportedRouters().add(rAsm);
-
+        l1.getMinutesPerUnitByRouter().put(rAsm, 2); // L1 装配 2 分钟/件
 
         Line l2 = new Line(2L, "L2");
         l2.getSupportedRouters().add(rFab);
+        l2.getMinutesPerUnitByRouter().put(rFab, 1); // L2 加工 1 分钟/件
 
         List<Item> items = Arrays.asList(a, b, c);
         List<Router> routers = Arrays.asList(rAsm, rFab);
@@ -50,7 +51,6 @@ public class ProductionPlannerApp {
             LocalDate d = startDay.plusDays(i);
 
             // L1：每天两个班段（与原有时间保持一致）
-            // 注意：这里的 capacityUnits 仍沿用原值（5），如需“把槽位扩大一点”，可自行调大该值
             long l1Base = 1000 + (i * 10L);
             slots.add(new LineShiftSlot(l1Base + 1, l1, d, 8 * 60, 12 * 60, 5));
             slots.add(new LineShiftSlot(l1Base + 2, l1, d, 13 * 60, 17 * 60, 5));
@@ -76,7 +76,6 @@ public class ProductionPlannerApp {
         List<Task> tasks = explodeDemandsToTasks(demands, bom);
 
         // 7.1 拆分 Task → TaskPart（允许跨班段排产）
-        // 如需按产线能力自适应拆分，可改成你之前的 splitTasksByCapacity(...)
         List<TaskPart> parts = splitTasks(tasks, 50);
 
         // 8) 组装问题实例
@@ -121,8 +120,10 @@ public class ProductionPlannerApp {
                 String dateStr  = (s != null && s.getDate() != null) ? s.getDate().toString() : "未分配";
                 String timeStr  = (s != null) ? (fmtMin(s.getStartMinuteOfDay()) + "-" + fmtMin(s.getEndMinuteOfDay())) : "未分配";
                 String routerName = (p.getRouter() != null) ? p.getRouter().getName() : "未选择";
-                System.out.printf("  分片(id=%d，数量=%d) → 产线=%s，日期=%s，时间=%s，工艺=%s%n",
-                        p.getId(), p.getQuantity(), lineName, dateStr, timeStr, routerName
+                String partStart = (p.getStartIndex() != null) ? fmtAbs(p.getStartIndex()) : "未分配";
+                String partEnd   = (p.getEndIndex() != null) ? fmtAbs(p.getEndIndex()) : "未分配";
+                System.out.printf("  分片(id=%d，数量=%d) → 产线=%s，日期=%s，时间=%s，工艺=%s，开始=%s，结束=%s%n",
+                        p.getId(), p.getQuantity(), lineName, dateStr, timeStr, routerName, partStart, partEnd
                 );
             }
         }
@@ -189,5 +190,12 @@ public class ProductionPlannerApp {
         int h = minuteOfDay / 60;
         int m = minuteOfDay % 60;
         return String.format("%02d:%02d", h, m);
+    }
+
+    private static String fmtAbs(long minuteIndex) {
+        long day = Math.floorDiv(minuteIndex, 24L * 60L);
+        int mod = (int)Math.floorMod(minuteIndex, 24L * 60L);
+        LocalDate date = LocalDate.ofEpochDay(day);
+        return date + " " + fmtMin(mod);
     }
 }

@@ -2,7 +2,7 @@ package com.iimsoft.scheduler.domain;
 
 import java.time.LocalDate;
 
-public class LineShiftSlot {
+public class LineShiftSlot implements Standstill {
     private Long id;
     private Line line;
     private LocalDate date;          // 班次开始所在的生产日期
@@ -58,6 +58,17 @@ public class LineShiftSlot {
         } else {
             return base + endMinuteOfDay;
         }
+    }
+
+    // Standstill 接口实现：链头的“前件结束时间”等于槽位开始
+    @Override
+    public LineShiftSlot getSlot() {
+        return this;
+    }
+
+    @Override
+    public Long getChainEndIndex() {
+        return getStartIndex();
     }
 
     @Override

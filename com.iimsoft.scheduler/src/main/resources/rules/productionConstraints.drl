@@ -26,6 +26,15 @@ then
     scoreHolder.addHardConstraintMatch(kcontext, -1);
 end
 
+// 硬约束：分片结束时间必须不超过槽位时间窗（使用影子变量 endIndex）
+rule "Task part must fit inside its slot window"
+when
+    TaskPart(slot != null, $slot : slot, $end : endIndex, eval($end != null && $end > $slot.getEndIndex()))
+then
+    int over = (int)($end - $slot.getEndIndex());
+    scoreHolder.addHardConstraintMatch(kcontext, -over);
+end
+
 // 硬约束：槽位分钟容量不能超（sum(requiredMinutes) ≤ slot.durationMinutes）
 rule "Slot time capacity must not be exceeded"
 when
@@ -34,44 +43,31 @@ when
         TaskPart(slot == $slot, $req : requiredMinutes),
         sum($req)
     )
-    eval($sum.intValue() > ($slot.getEndMinuteOfDay() - $slot.getStartMinuteOfDay()))
+    eval($sum.intValue() > $slot.getDurationMinutes())
 then
-    int duration = $slot.getEndMinuteOfDay() - $slot.getStartMinuteOfDay();
+    int duration = $slot.getDurationMinutes();
     int over = $sum.intValue() - duration;
     scoreHolder.addHardConstraintMatch(kcontext, -over);
 end
 
-// 硬约束：同一槽位内禁止混工艺（一个槽位只能跑一种 Router）
-rule "Single router per slot (no mixing within a slot)"
-when
-    $slot : LineShiftSlot()
-    $routerSet : Set() from accumulate(
-        TaskPart(slot == $slot, router != null, $r : router),
-        collectSet($r)
-    )
-    eval($routerSet.size() > 1)
-then
-    int overKinds = $routerSet.size() - 1;
-    scoreHolder.addHardConstraintMatch(kcontext, -overKinds);
-end
+// 允许混工艺：移除“Single router per slot (no mixing within a slot)”硬约束
 
-// 软约束：交期迟期惩罚（从 TaskPart.task 读取交期）
+// 软约束：交期迟期惩罚（用分片自身结束时间）
 rule "Minimize tardiness (due date)"
 when
-    TaskPart(slot != null, $end : slot.endIndex, $due : task.dueEndIndexMinutes)
-    eval($due != null && $end > $due.longValue())
+    TaskPart(slot != null, $end : endIndex, $due : task.dueEndIndexMinutes)
+    eval($end != null && $due != null && $end > $due.longValue())
 then
     int late = (int)($end - $due.longValue());
     scoreHolder.addSoftConstraintMatch(kcontext, -late);
 end
 
-// 软约束：夜班惩罚（让系统“优先白班，容量不够时才用夜班”）
-// 简化判断：开始时间 >= 18:00 视为夜班。可根据你的实际班次字段替换。
+// 软约束：夜班惩罚
 rule "Penalize night shift usage"
 when
     TaskPart(slot != null, $startMin : slot.startMinuteOfDay, eval($startMin >= (18 * 60)))
 then
-    scoreHolder.addSoftConstraintMatch(kcontext, -100); // 权重可调
+    scoreHolder.addSoftConstraintMatch(kcontext, -100);
 end
 
 // 软约束：同一条产线的负载尽量均衡（平方惩罚）

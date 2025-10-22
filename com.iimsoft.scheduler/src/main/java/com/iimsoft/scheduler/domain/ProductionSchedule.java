@@ -27,6 +27,17 @@ public class ProductionSchedule {
     @ProblemFactCollectionProperty
     private List<LineShiftSlot> slotList = new ArrayList<>();
 
+    // 为 indexInSlot 提供一个 0..(任务分片数-1) 的整型取值域
+    @ValueRangeProvider(id = "indexRange")
+    public List<Integer> getIndexRange() {
+        int n = Math.max(1, taskPartList == null ? 0 : taskPartList.size());
+        List<Integer> range = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            range.add(i);
+        }
+        return range;
+    }
+
     // BOM 与需求（问题事实）
     @ProblemFactCollectionProperty
     private List<BomComponent> bomList = new ArrayList<>();
