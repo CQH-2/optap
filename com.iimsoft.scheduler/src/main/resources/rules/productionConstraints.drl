@@ -48,6 +48,16 @@ then
     scoreHolder.addSoftConstraintMatch(kcontext, - (int)$end);
 end
 
+// 新增软约束：交期迟期惩罚（槽位结束时间超过交期时，按超出分钟数惩罚）
+rule "Minimize tardiness (due date)"
+when
+    Task(slot != null, $end : slot.endIndex, $due : dueEndIndexMinutes)
+    eval($due != null && $end > $due.longValue())
+then
+    int late = (int)($end - $due.longValue());
+    scoreHolder.addSoftConstraintMatch(kcontext, -late);
+end
+
 // 软约束：同一条产线的负载尽量均衡（平方惩罚）
 rule "Balance line load"
 when

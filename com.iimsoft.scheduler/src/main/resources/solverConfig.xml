@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <solver>
     <solutionClass>com.iimsoft.scheduler.domain.ProductionSchedule</solutionClass>
-    <entityClass>com.iimsoft.scheduler.domain.Task</entityClass>
+    <!-- 规划实体改为 TaskPart -->
+    <entityClass>com.iimsoft.scheduler.domain.TaskPart</entityClass>
 
     <scoreDirectorFactory>
-        <!-- JDK 1.8 建议使用 DRL -->
         <scoreDrl>rules/productionConstraints.drl</scoreDrl>
     </scoreDirectorFactory>
 

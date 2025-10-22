@@ -3,11 +3,16 @@ package com.iimsoft.scheduler.domain;
 import org.optaplanner.core.api.domain.entity.PlanningEntity;
 import org.optaplanner.core.api.domain.variable.PlanningVariable;
 
+import java.time.LocalDate;
+
 @PlanningEntity
 public class Task {
     private Long id;
     private Item item;       // 物料
     private int quantity;    // 产量（单位需与 Slot.capacityUnits 对齐）
+
+    // 交期（由 Demand/BOM 展开得到），用于迟期惩罚
+    private LocalDate dueDate;
 
     // 规划变量：分配到具体的产线-日期-时间段槽位
     @PlanningVariable(valueRangeProviderRefs = "slotRange")
@@ -21,6 +26,9 @@ public class Task {
     public Task(Long id, Item item, int quantity) {
         this.id = id; this.item = item; this.quantity = quantity;
     }
+    public Task(Long id, Item item, int quantity, LocalDate dueDate) {
+        this.id = id; this.item = item; this.quantity = quantity; this.dueDate = dueDate;
+    }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -28,6 +36,9 @@ public class Task {
     public void setItem(Item item) { this.item = item; }
     public int getQuantity() { return quantity; }
     public void setQuantity(int quantity) { this.quantity = quantity; }
+
+    public LocalDate getDueDate() { return dueDate; }
+    public void setDueDate(LocalDate dueDate) { this.dueDate = dueDate; }
 
     public LineShiftSlot getSlot() { return slot; }
     public void setSlot(LineShiftSlot slot) { this.slot = slot; }
@@ -37,4 +48,11 @@ public class Task {
 
     // 便捷访问：当前任务所在产线（来自 slot）
     public Line getLine() { return slot == null ? null : slot.getLine(); }
+
+    // 便捷访问：交期换算为分钟序（以当天结束为界），供 DRL 使用
+    public Long getDueEndIndexMinutes() {
+        if (dueDate == null) return null;
+        // 将“交期当天 24:00”作为截止时间
+        return dueDate.toEpochDay() * 24L * 60L + 24L * 60L;
+    }
 }

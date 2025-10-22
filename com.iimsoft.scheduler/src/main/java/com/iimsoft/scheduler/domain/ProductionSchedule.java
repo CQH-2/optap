@@ -26,6 +26,14 @@ public class ProductionSchedule {
     @ProblemFactCollectionProperty
     private List<LineShiftSlot> slotList;
 
+    // BOM 与需求（问题事实）
+    @ProblemFactCollectionProperty
+    private List<BomComponent> bomList;
+
+    @ProblemFactCollectionProperty
+    private List<Demand> demandList;
+
+    // 规划实体：任务（由需求按 BOM 展开生成）
     @PlanningEntityCollectionProperty
     private List<Task> taskList;
 
@@ -42,8 +50,16 @@ public class ProductionSchedule {
     public void setRouterList(List<Router> routerList) { this.routerList = routerList; }
     public List<LineShiftSlot> getSlotList() { return slotList; }
     public void setSlotList(List<LineShiftSlot> slotList) { this.slotList = slotList; }
+
+    public List<BomComponent> getBomList() { return bomList; }
+    public void setBomList(List<BomComponent> bomList) { this.bomList = bomList; }
+
+    public List<Demand> getDemandList() { return demandList; }
+    public void setDemandList(List<Demand> demandList) { this.demandList = demandList; }
+
     public List<Task> getTaskList() { return taskList; }
     public void setTaskList(List<Task> taskList) { this.taskList = taskList; }
+
     public HardSoftScore getScore() { return score; }
     public void setScore(HardSoftScore score) { this.score = score; }
 }
