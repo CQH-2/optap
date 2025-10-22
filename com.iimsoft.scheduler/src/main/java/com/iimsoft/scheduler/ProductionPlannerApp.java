@@ -17,6 +17,11 @@ public class ProductionPlannerApp {
         Item b = new Item(2L, "B", "子件B");
         Item c = new Item(3L, "C", "子件C");
 
+        // 配置安全库存示例（单位与任务数量一致）
+        a.setSafetyStock(10);
+        b.setSafetyStock(20);
+        c.setSafetyStock(15);
+
         // 2) 工艺与物料支持关系
         Router rAsm = new Router(1L, "装配");
         Router rFab = new Router(2L, "加工");
@@ -41,10 +46,9 @@ public class ProductionPlannerApp {
         LocalDate d2 = d1.plusDays(1);
         List<LineShiftSlot> slots = new ArrayList<>();
         // L1：两天各两个班段
-        slots.add(new LineShiftSlot(1001L, l1, d1, 8 * 60, 12 * 60, 120));
-        slots.add(new LineShiftSlot(1002L, l1, d1, 13 * 60, 17 * 60, 100));
-        slots.add(new LineShiftSlot(1003L, l1, d2, 8 * 60, 12 * 60, 120));
-        slots.add(new LineShiftSlot(1004L, l1, d2, 13 * 60, 17 * 60, 100));
+        slots.add(new LineShiftSlot(1001L, l1, d1, 8 * 60, 12 * 60, 5));
+        slots.add(new LineShiftSlot(1002L, l1, d1, 13 * 60, 17 * 60, 5));
+    ;
         // L2：两天各一个长班段
         slots.add(new LineShiftSlot(2001L, l2, d1, 7 * 60, 15 * 60, 200));
         slots.add(new LineShiftSlot(2002L, l2, d2, 7 * 60, 15 * 60, 200));
@@ -57,7 +61,7 @@ public class ProductionPlannerApp {
 
         // 6) 顶层需求：需要 100 个 A，交期为 d2（次日）
         List<Demand> demands = Collections.singletonList(
-                new Demand(10001L, a, 100, d2)
+                new Demand(10001L, a, 200, d2)
         );
 
         // 7) 将需求按 BOM 展开 → 生成待排产任务（Task），并赋交期

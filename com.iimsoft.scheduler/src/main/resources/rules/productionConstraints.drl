@@ -5,8 +5,8 @@ import com.iimsoft.scheduler.domain.TaskPart
 import com.iimsoft.scheduler.domain.Router
 import com.iimsoft.scheduler.domain.Line
 import com.iimsoft.scheduler.domain.LineShiftSlot
-
 import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScoreHolder
+import java.util.Set
 
 global HardSoftScoreHolder scoreHolder
 
@@ -38,6 +38,21 @@ when
 then
     int over = $sum.intValue() - $slot.getCapacityUnits();
     scoreHolder.addHardConstraintMatch(kcontext, -over);
+end
+
+// 新增硬约束：同一槽位内禁止混工艺（一个槽位只能跑一种 Router）
+// 若发现同一槽位内存在多个不同 Router，则按超出1种的数量进行硬罚
+rule "Single router per slot (no mixing within a slot)"
+when
+    $slot : LineShiftSlot()
+    $routerSet : Set() from accumulate(
+        TaskPart(slot == $slot, router != null, $r : router),
+        collectSet($r)
+    )
+    eval($routerSet.size() > 1)
+then
+    int overKinds = $routerSet.size() - 1;
+    scoreHolder.addHardConstraintMatch(kcontext, -overKinds);
 end
 
 // 软约束：越早的槽位越优（全局尽量提前完工）
