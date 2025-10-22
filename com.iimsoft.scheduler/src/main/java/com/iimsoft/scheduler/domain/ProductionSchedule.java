@@ -12,53 +12,50 @@ import org.optaplanner.core.api.domain.solution.PlanningScore;
 @PlanningSolution
 public class ProductionSchedule {
 
+    // 物料集合作为取值域
+    @ValueRangeProvider(id = "itemRange")
     @ProblemFactCollectionProperty
     private List<Item> itemList = new ArrayList<>();
 
     @ProblemFactCollectionProperty
     private List<Line> lineList = new ArrayList<>();
 
-    @ValueRangeProvider(id = "routerRange")
     @ProblemFactCollectionProperty
     private List<Router> routerList = new ArrayList<>();
 
-    // 核心：每条产线“自己的”班次与日期生成的槽位集合
-    @ValueRangeProvider(id = "slotRange")
+    // 每小时的产线时隙（问题事实）
     @ProblemFactCollectionProperty
-    private List<LineShiftSlot> slotList = new ArrayList<>();
+    private List<LineHourSlot> hourSlotList = new ArrayList<>();
 
-    // 为 indexInSlot 提供一个 0..(任务分片数-1) 的整型取值域
-    @ValueRangeProvider(id = "indexRange")
-    public List<Integer> getIndexRange() {
-        int n = Math.max(1, taskPartList == null ? 0 : taskPartList.size());
-        List<Integer> range = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) {
-            range.add(i);
-        }
-        return range;
-    }
-
-    // BOM 与需求（问题事实）
+    // 需求、BOM、库存
     @ProblemFactCollectionProperty
     private List<BomComponent> bomList = new ArrayList<>();
 
     @ProblemFactCollectionProperty
     private List<Demand> demandList = new ArrayList<>();
 
-    // 如你的本地分支已加入库存/需求展开，请确保它们也非空
     @ProblemFactCollectionProperty
     private List<Inventory> inventoryList = new ArrayList<>();
 
     @ProblemFactCollectionProperty
     private List<Requirement> requirementList = new ArrayList<>();
 
-    // 原始任务作为问题事实（用于统计与展示、拆分来源）
-    @ProblemFactCollectionProperty
-    private List<Task> taskList = new ArrayList<>();
-
-    // 规划实体：任务分片
+    // 规划实体：每小时的生产分配（变量为 item、quantity）
     @PlanningEntityCollectionProperty
-    private List<TaskPart> taskPartList = new ArrayList<>();
+    private List<HourPlan> planList = new ArrayList<>();
+
+    // 数量取值域（0..maxQuantityPerHour）
+    private int maxQuantityPerHour = 200;
+
+    @ValueRangeProvider(id = "quantityRange")
+    public List<Integer> getQuantityRange() {
+        int max = Math.max(0, maxQuantityPerHour);
+        List<Integer> range = new ArrayList<>(max + 1);
+        for (int i = 0; i <= max; i++) {
+            range.add(i);
+        }
+        return range;
+    }
 
     @PlanningScore
     private HardSoftScore score;
@@ -74,8 +71,8 @@ public class ProductionSchedule {
     public List<Router> getRouterList() { return routerList; }
     public void setRouterList(List<Router> routerList) { this.routerList = nn(routerList); }
 
-    public List<LineShiftSlot> getSlotList() { return slotList; }
-    public void setSlotList(List<LineShiftSlot> slotList) { this.slotList = nn(slotList); }
+    public List<LineHourSlot> getHourSlotList() { return hourSlotList; }
+    public void setHourSlotList(List<LineHourSlot> hourSlotList) { this.hourSlotList = nn(hourSlotList); }
 
     public List<BomComponent> getBomList() { return bomList; }
     public void setBomList(List<BomComponent> bomList) { this.bomList = nn(bomList); }
@@ -89,11 +86,11 @@ public class ProductionSchedule {
     public List<Requirement> getRequirementList() { return requirementList; }
     public void setRequirementList(List<Requirement> requirementList) { this.requirementList = nn(requirementList); }
 
-    public List<Task> getTaskList() { return taskList; }
-    public void setTaskList(List<Task> taskList) { this.taskList = nn(taskList); }
+    public List<HourPlan> getPlanList() { return planList; }
+    public void setPlanList(List<HourPlan> planList) { this.planList = nn(planList); }
 
-    public List<TaskPart> getTaskPartList() { return taskPartList; }
-    public void setTaskPartList(List<TaskPart> taskPartList) { this.taskPartList = nn(taskPartList); }
+    public int getMaxQuantityPerHour() { return maxQuantityPerHour; }
+    public void setMaxQuantityPerHour(int maxQuantityPerHour) { this.maxQuantityPerHour = maxQuantityPerHour; }
 
     public HardSoftScore getScore() { return score; }
     public void setScore(HardSoftScore score) { this.score = score; }

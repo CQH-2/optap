@@ -1,71 +1,59 @@
 package com.iimsoft.scheduler.rules
 dialect "java"
 
-import com.iimsoft.scheduler.domain.TaskPart
-import com.iimsoft.scheduler.domain.Router
+import com.iimsoft.scheduler.domain.HourPlan
 import com.iimsoft.scheduler.domain.Line
-import com.iimsoft.scheduler.domain.LineShiftSlot
+import com.iimsoft.scheduler.domain.LineHourSlot
+import com.iimsoft.scheduler.domain.Requirement
 import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScoreHolder
-import java.util.Set
 
 global HardSoftScoreHolder scoreHolder
 
-// 硬约束：选定槽位的产线必须支持所选工艺
-rule "Line must support router"
+// 硬约束：无物料时数量必须为 0
+rule "Zero quantity when no item"
 when
-    TaskPart(slot != null, router != null, $slot : slot, $router : router, eval(!$slot.getLine().supports($router)))
+    HourPlan($item : item == null, $q : quantity != null && quantity.intValue() > 0)
+then
+    scoreHolder.addHardConstraintMatch(kcontext, -$q);
+end
+
+// 硬约束：产线必须支持该物料
+rule "Line must support item"
+when
+    HourPlan(item != null, $line : slot.line, $item : item, eval(!$line.supportsItem($item)))
 then
     scoreHolder.addHardConstraintMatch(kcontext, -1);
 end
 
-// 硬约束：工艺必须支持该物料
-rule "Router must support item"
+// 硬约束：小时容量不能超（数量 × 分钟/件 ≤ 60）
+rule "Hour capacity must not be exceeded"
 when
-    TaskPart(router != null, $router : router, $item : item, eval(!$router.supports($item)))
+    $hp : HourPlan($reqMin : requiredMinutes, slot != null, $slot : slot, eval($reqMin > $slot.getDurationMinutes()))
 then
-    scoreHolder.addHardConstraintMatch(kcontext, -1);
-end
-
-// 硬约束：分片结束时间必须不超过槽位时间窗（使用影子变量 endIndex）
-rule "Task part must fit inside its slot window"
-when
-    TaskPart(slot != null, $slot : slot, $end : endIndex, eval($end != null && $end > $slot.getEndIndex()))
-then
-    int over = (int)($end - $slot.getEndIndex());
+    int over = $hp.getRequiredMinutes() - $slot.getDurationMinutes();
     scoreHolder.addHardConstraintMatch(kcontext, -over);
 end
 
-// 硬约束：槽位分钟容量不能超（sum(requiredMinutes) ≤ slot.durationMinutes）
-rule "Slot time capacity must not be exceeded"
+// 硬约束：按交期满足需求（到期前累积产出必须 ≥ 需求）
+rule "Satisfy requirements by due date"
 when
-    $slot : LineShiftSlot()
+    $req : Requirement($item : item, $due : dueEndIndexMinutes, $need : quantity)
     $sum : Number() from accumulate(
-        TaskPart(slot == $slot, $req : requiredMinutes),
-        sum($req)
+        HourPlan(item == $item, $q : quantity, $end : endIndex,
+                 eval($q != null && $q.intValue() > 0 && $end != null && $end.longValue() <= $due.longValue())),
+        sum($q)
     )
-    eval($sum.intValue() > $slot.getDurationMinutes())
+    eval($sum.intValue() < $need)
 then
-    int duration = $slot.getDurationMinutes();
-    int over = $sum.intValue() - duration;
-    scoreHolder.addHardConstraintMatch(kcontext, -over);
+    int shortage = $req.getQuantity() - $sum.intValue();
+    scoreHolder.addHardConstraintMatch(kcontext, -shortage);
 end
 
-// 允许混工艺：移除“Single router per slot (no mixing within a slot)”硬约束
-
-// 软约束：交期迟期惩罚（用分片自身结束时间）
-rule "Minimize tardiness (due date)"
+// 软约束：夜间（18:00 及以后）生产惩罚
+rule "Penalize night hours"
 when
-    TaskPart(slot != null, $end : endIndex, $due : task.dueEndIndexMinutes)
-    eval($end != null && $due != null && $end > $due.longValue())
-then
-    int late = (int)($end - $due.longValue());
-    scoreHolder.addSoftConstraintMatch(kcontext, -late);
-end
-
-// 软约束：夜班惩罚
-rule "Penalize night shift usage"
-when
-    TaskPart(slot != null, $startMin : slot.startMinuteOfDay, eval($startMin >= (18 * 60)))
+    HourPlan(item != null, quantity != null, eval(quantity.intValue() > 0),
+             $startMin : slot.startMinuteOfDay, eval($startMin >= (18 * 60)))
 then
     scoreHolder.addSoftConstraintMatch(kcontext, -100);
 end
@@ -75,7 +63,7 @@ rule "Balance line load"
 when
     $line : Line()
     $sum : Number() from accumulate(
-        TaskPart(slot != null, $line == getLine(), $q : quantity),
+        HourPlan(slot.line == $line, $q : quantity != null ? quantity.intValue() : 0),
         sum($q)
     )
 then

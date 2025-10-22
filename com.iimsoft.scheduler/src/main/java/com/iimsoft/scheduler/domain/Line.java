@@ -11,20 +11,43 @@ public class Line {
     private Long id;
     private String name;
 
-    // 该产线支持哪些工艺
     private Set<Router> supportedRouters = new HashSet<>();
-    // 该产线在不同班次的产能（单位：件/小时×班时 或 直接“件数”）——目前未直接使用
     private Map<Shift, Integer> capacityByShift = new HashMap<>();
 
-    // 新增：不同工艺在本产线上的生产速率（每件所需分钟数）
+    // 不同工艺在本产线上的生产速率（每件所需分钟数）
     private Map<Router, Integer> minutesPerUnitByRouter = new HashMap<>();
 
     public Line() {}
     public Line(Long id, String name) { this.id = id; this.name = name; }
 
-    // 支持关系：既在 supportedRouters 集合里，并且配置了速率
     public boolean supports(Router router) {
         return supportedRouters.contains(router) && minutesPerUnitByRouter.containsKey(router);
+    }
+
+    // 新增：产线是否支持某物料（存在支持该物料的工艺，且配置了速率）
+    public boolean supportsItem(Item item) {
+        if (item == null) return false;
+        for (Map.Entry<Router, Integer> e : minutesPerUnitByRouter.entrySet()) {
+            Router r = e.getKey();
+            if (supportedRouters.contains(r) && r.supports(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 新增：给定物料，取本产线所有可用工艺的最小分钟/件；无支持时返回大数
+    public int getMinutesPerUnitForItem(Item item) {
+        if (item == null) return Integer.MAX_VALUE / 4;
+        int best = Integer.MAX_VALUE / 4;
+        for (Map.Entry<Router, Integer> e : minutesPerUnitByRouter.entrySet()) {
+            Router r = e.getKey();
+            Integer mpu = e.getValue();
+            if (mpu != null && supportedRouters.contains(r) && r.supports(item)) {
+                if (mpu < best) best = mpu;
+            }
+        }
+        return best;
     }
 
     public int capacityOf(Shift shift) {
@@ -34,7 +57,6 @@ public class Line {
     public int getMinutesPerUnit(Router router) {
         Integer v = minutesPerUnitByRouter.get(router);
         if (v == null) {
-            // 未配置速率时，视为不支持（与 supports 一致），这里返回一个大数避免除零
             return Integer.MAX_VALUE / 4;
         }
         return v;

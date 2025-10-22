@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <solver>
     <solutionClass>com.iimsoft.scheduler.domain.ProductionSchedule</solutionClass>
-    <!-- 规划实体改为 TaskPart -->
-    <entityClass>com.iimsoft.scheduler.domain.TaskPart</entityClass>
+    <!-- 规划实体改为 HourPlan -->
+    <entityClass>com.iimsoft.scheduler.domain.HourPlan</entityClass>
 
     <scoreDirectorFactory>
         <scoreDrl>rules/productionConstraints.drl</scoreDrl>
