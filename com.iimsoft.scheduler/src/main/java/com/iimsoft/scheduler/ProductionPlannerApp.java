@@ -6,6 +6,8 @@ import org.optaplanner.core.api.solver.SolverFactory;
 
 import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 public class ProductionPlannerApp {
 
@@ -61,6 +63,9 @@ public class ProductionPlannerApp {
         // 7) 将需求按 BOM 展开 → 生成待排产任务（Task），并赋交期
         List<Task> tasks = explodeDemandsToTasks(demands, bom);
 
+        // 7.1 拆分 Task → TaskPart（允许跨班段排产）
+        List<TaskPart> parts = splitTasks(tasks, 50); // 自定义粒度
+
         // 8) 组装问题实例
         ProductionSchedule problem = new ProductionSchedule();
         problem.setItemList(items);
@@ -69,7 +74,8 @@ public class ProductionPlannerApp {
         problem.setSlotList(slots);
         problem.setBomList(bom);
         problem.setDemandList(demands);
-        problem.setTaskList(tasks);
+        problem.setTaskList(tasks);         // 作为问题事实
+        problem.setTaskPartList(parts);     // 作为规划实体
 
         // 9) 构建并求解
         SolverFactory<ProductionSchedule> factory =
@@ -78,39 +84,47 @@ public class ProductionPlannerApp {
 
         ProductionSchedule best = solver.solve(problem);
 
-        // 10) 中文输出（按任务）
+        // 10) 中文输出：按 Task 汇总 + 分片明细
         System.out.println("最佳分数 = " + best.getScore());
+        Map<Long, List<TaskPart>> byTask = best.getTaskPartList().stream()
+                .collect(Collectors.groupingBy(tp -> tp.getTask().getId(), LinkedHashMap::new, Collectors.toList()));
+
         for (Task t : best.getTaskList()) {
-            LineShiftSlot s = t.getSlot();
-            String lineName = s != null && s.getLine() != null ? s.getLine().getName() : "未分配";
-            String dateStr  = s != null && s.getDate() != null ? s.getDate().toString() : "未分配";
-            String timeStr  = s != null ? (fmtMin(s.getStartMinuteOfDay()) + "-" + fmtMin(s.getEndMinuteOfDay())) : "未分配";
-            String routerName = t.getRouter() != null ? t.getRouter().getName() : "未选择";
-            String dueStr = t.getDueDate() != null ? t.getDueDate().toString() : "未设置";
-            System.out.printf("任务 %d（物料=%s，数量=%d，交期=%s）→ 产线=%s，日期=%s，时间=%s，工艺=%s%n",
+            List<TaskPart> list = byTask.getOrDefault(t.getId(), Collections.emptyList());
+            int sumQty = list.stream().mapToInt(TaskPart::getQuantity).sum();
+
+            System.out.printf("任务 %d（物料=%s，数量=%d，交期=%s）→ 已拆分=%d 个分片，已分配总数=%d%n",
                     t.getId(),
                     t.getItem() != null ? t.getItem().getCode() : "未知物料",
                     t.getQuantity(),
-                    dueStr,
-                    lineName, dateStr, timeStr, routerName
+                    t.getDueDate() != null ? t.getDueDate().toString() : "未设置",
+                    list.size(),
+                    sumQty
             );
+
+            for (TaskPart p : list) {
+                LineShiftSlot s = p.getSlot();
+                String lineName = (s != null && s.getLine() != null) ? s.getLine().getName() : "未分配";
+                String dateStr  = (s != null && s.getDate() != null) ? s.getDate().toString() : "未分配";
+                String timeStr  = (s != null) ? (fmtMin(s.getStartMinuteOfDay()) + "-" + fmtMin(s.getEndMinuteOfDay())) : "未分配";
+                String routerName = (p.getRouter() != null) ? p.getRouter().getName() : "未选择";
+                System.out.printf("  分片(id=%d，数量=%d) → 产线=%s，日期=%s，时间=%s，工艺=%s%n",
+                        p.getId(), p.getQuantity(), lineName, dateStr, timeStr, routerName
+                );
+            }
         }
     }
 
-    // 需求展开（最小实现）：将顶层需求按 BOM 多层展开，
-    // 聚合为每个物料的一条 Task；交期取“最早到达”的交期（即最小日期）。
+    // 需求展开（多层）：聚合每种物料的需求总量与最早交期
     private static List<Task> explodeDemandsToTasks(List<Demand> demands, List<BomComponent> bom) {
-        // 建立父->子 的索引
         Map<Item, List<BomComponent>> childrenByParent = new HashMap<>();
         for (BomComponent bc : bom) {
             childrenByParent.computeIfAbsent(bc.getParentItem(), k -> new ArrayList<>()).add(bc);
         }
 
-        // 累加每个物料的总量与最早交期
         Map<Item, Integer> qtyByItem = new HashMap<>();
         Map<Item, LocalDate> dueByItem = new HashMap<>();
 
-        // 队列迭代展开
         Deque<Demand> queue = new ArrayDeque<>(demands);
         while (!queue.isEmpty()) {
             Demand cur = queue.pollFirst();
@@ -118,11 +132,9 @@ public class ProductionPlannerApp {
             int qty = cur.getQuantity();
             LocalDate due = cur.getDueDate();
 
-            // 聚合当前物料
             qtyByItem.merge(item, qty, Integer::sum);
             dueByItem.merge(item, due, (oldDue, newDue) -> newDue.isBefore(oldDue) ? newDue : oldDue);
 
-            // 展开子件
             List<BomComponent> children = childrenByParent.get(item);
             if (children != null) {
                 for (BomComponent bc : children) {
@@ -134,7 +146,6 @@ public class ProductionPlannerApp {
             }
         }
 
-        // 生成 Task（带交期）
         List<Task> tasks = new ArrayList<>();
         long seq = 1000L;
         for (Map.Entry<Item, Integer> e : qtyByItem.entrySet()) {
@@ -144,6 +155,21 @@ public class ProductionPlannerApp {
             tasks.add(new Task(seq++, item, q, due));
         }
         return tasks;
+    }
+
+    // 简单拆分：按固定粒度切分，最后一片可能小于粒度
+    private static List<TaskPart> splitTasks(List<Task> tasks, int chunkSize) {
+        List<TaskPart> parts = new ArrayList<>();
+        AtomicLong seq = new AtomicLong(1_000_000L);
+        for (Task t : tasks) {
+            int remain = t.getQuantity();
+            while (remain > 0) {
+                int take = Math.min(remain, chunkSize);
+                parts.add(new TaskPart(seq.getAndIncrement(), t, take));
+                remain -= take;
+            }
+        }
+        return parts;
     }
 
     private static String fmtMin(int minuteOfDay) {

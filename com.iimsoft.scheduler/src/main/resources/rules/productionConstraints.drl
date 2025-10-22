@@ -1,7 +1,7 @@
 package com.iimsoft.scheduler.rules
 dialect "java"
 
-import com.iimsoft.scheduler.domain.Task
+import com.iimsoft.scheduler.domain.TaskPart
 import com.iimsoft.scheduler.domain.Router
 import com.iimsoft.scheduler.domain.Line
 import com.iimsoft.scheduler.domain.LineShiftSlot
@@ -13,7 +13,7 @@ global HardSoftScoreHolder scoreHolder
 // 硬约束：选定槽位的产线必须支持所选工艺
 rule "Line must support router"
 when
-    Task(slot != null, router != null, $slot : slot, $router : router, eval(!$slot.getLine().supports($router)))
+    TaskPart(slot != null, router != null, $slot : slot, $router : router, eval(!$slot.getLine().supports($router)))
 then
     scoreHolder.addHardConstraintMatch(kcontext, -1);
 end
@@ -21,7 +21,7 @@ end
 // 硬约束：工艺必须支持该物料
 rule "Router must support item"
 when
-    Task(router != null, item != null, $router : router, $item : item, eval(!$router.supports($item)))
+    TaskPart(router != null, $router : router, $item : item, eval(!$router.supports($item)))
 then
     scoreHolder.addHardConstraintMatch(kcontext, -1);
 end
@@ -31,7 +31,7 @@ rule "Slot capacity must not be exceeded"
 when
     $slot : LineShiftSlot()
     $sum : Number() from accumulate(
-        Task(slot == $slot, $q : quantity),
+        TaskPart(slot == $slot, $q : quantity),
         sum($q)
     )
     eval($sum.intValue() > $slot.getCapacityUnits())
@@ -43,15 +43,15 @@ end
 // 软约束：越早的槽位越优（全局尽量提前完工）
 rule "Prefer earlier slot (by end time)"
 when
-    Task(slot != null, $end : slot.endIndex)
+    TaskPart(slot != null, $end : slot.endIndex)
 then
     scoreHolder.addSoftConstraintMatch(kcontext, - (int)$end);
 end
 
-// 新增软约束：交期迟期惩罚（槽位结束时间超过交期时，按超出分钟数惩罚）
+// 软约束：交期迟期惩罚（从 TaskPart.task 读取交期）
 rule "Minimize tardiness (due date)"
 when
-    Task(slot != null, $end : slot.endIndex, $due : dueEndIndexMinutes)
+    TaskPart(slot != null, $end : slot.endIndex, $due : task.dueEndIndexMinutes)
     eval($due != null && $end > $due.longValue())
 then
     int late = (int)($end - $due.longValue());
@@ -63,7 +63,7 @@ rule "Balance line load"
 when
     $line : Line()
     $sum : Number() from accumulate(
-        Task(slot != null, $line == getLine(), $q : quantity),
+        TaskPart(slot != null, $line == getLine(), $q : quantity),
         sum($q)
     )
 then

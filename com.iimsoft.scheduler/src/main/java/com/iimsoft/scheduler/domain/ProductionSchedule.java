@@ -33,9 +33,13 @@ public class ProductionSchedule {
     @ProblemFactCollectionProperty
     private List<Demand> demandList;
 
-    // 规划实体：任务（由需求按 BOM 展开生成）
-    @PlanningEntityCollectionProperty
+    // 原始任务作为问题事实（用于统计与展示、拆分来源）
+    @ProblemFactCollectionProperty
     private List<Task> taskList;
+
+    // 规划实体：任务分片
+    @PlanningEntityCollectionProperty
+    private List<TaskPart> taskPartList;
 
     @PlanningScore
     private HardSoftScore score;
@@ -59,6 +63,9 @@ public class ProductionSchedule {
 
     public List<Task> getTaskList() { return taskList; }
     public void setTaskList(List<Task> taskList) { this.taskList = taskList; }
+
+    public List<TaskPart> getTaskPartList() { return taskPartList; }
+    public void setTaskPartList(List<TaskPart> taskPartList) { this.taskPartList = taskPartList; }
 
     public HardSoftScore getScore() { return score; }
     public void setScore(HardSoftScore score) { this.score = score; }
