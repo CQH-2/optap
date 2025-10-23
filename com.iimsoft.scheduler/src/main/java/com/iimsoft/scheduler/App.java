@@ -39,7 +39,33 @@ public class App {
     }
 
     private static void printSchedule(ProductionSchedule solution) {
-        System.out.println("=== Schedule ===");
+        System.out.println("==== 物料信息 ====");
+        for (Item item : solution.getRouterList().stream().map(Router::getItem).distinct().toList()) {
+            System.out.printf("物料编码：%s，名称：%s%n", item.getCode(), item.getName());
+        }
+
+        System.out.println("\n==== BOM结构 ====");
+        for (BomArc arc : solution.getBomArcList()) {
+            System.out.printf("总成物料：%s 需要 子件：%s 数量：%d%n",
+                    arc.getParent().getCode(), arc.getChild().getCode(), arc.getQuantityPerParent());
+        }
+
+        System.out.println("\n==== 生产线与工艺能力 ====");
+        for (ProductionLine line : solution.getLineList()) {
+            System.out.printf("生产线：%s 支持工艺：", line.getCode());
+            System.out.print(line.getSupportedRouters().stream()
+                    .map(r -> String.format("%s(物料:%s，速度:%d件/小时)", r.getCode(), r.getItem().getCode(), r.getSpeedPerHour()))
+                    .collect(Collectors.joining("，")));
+            System.out.println();
+        }
+
+        System.out.println("\n==== 物料需求 ====");
+        for (DemandOrder d : solution.getDemandList()) {
+            System.out.printf("需求：物料%s，数量%d，截止日期%s，截止时间槽索引#%d%n",
+                    d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getDueTimeSlotIndex());
+        }
+
+        System.out.println("\n==== 调度结果 ====");
         var assignments = new ArrayList<>(solution.getAssignmentList());
         assignments.sort(Comparator
                 .comparing((ProductionAssignment a) -> a.getTimeSlot().getIndex())
@@ -47,10 +73,10 @@ public class App {
         for (ProductionAssignment a : assignments) {
             String line = a.getLine().getCode();
             String time = a.getTimeSlot().toString();
-            String router = a.getRouter() == null ? "IDLE" : a.getRouter().getCode();
+            String router = a.getRouter() == null ? "空闲" : a.getRouter().getCode();
             String item = a.getProducedItem() == null ? "-" : a.getProducedItem().getCode();
             int qty = a.getProducedQuantity();
-            System.out.printf("%s | %s | %-8s | item=%-4s qty=%d%n", time, line, router, item, qty);
+            System.out.printf("%s | 生产线：%s | 工艺：%-8s | 生产物料：%-4s 数量：%d%n", time, line, router, item, qty);
         }
 
         // 汇总产量
@@ -58,11 +84,11 @@ public class App {
                 .filter(a -> a.getRouter() != null)
                 .collect(Collectors.groupingBy(ProductionAssignment::getProducedItem,
                         Collectors.summingInt(ProductionAssignment::getProducedQuantity)));
-        System.out.println("=== Production Summary ===");
+        System.out.println("\n==== 产量汇总 ====");
         producedByItem.forEach((item, sum) ->
-                System.out.println(item.getCode() + " -> " + sum));
+                System.out.printf("物料%s 总产量：%d%n", item.getCode(), sum));
 
-        System.out.println("=== Demands ===");
+        System.out.println("\n==== 需求完成情况 ====");
         for (DemandOrder d : solution.getDemandList()) {
             int producedUpToDue = assignments.stream()
                     .filter(a -> a.getRouter() != null
@@ -70,9 +96,10 @@ public class App {
                             && a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex())
                     .mapToInt(ProductionAssignment::getProducedQuantity)
                     .sum();
-            System.out.printf("Demand %s x%d due %s[#%d], producedUpToDue=%d, shortage=%d%n",
+            int shortage = Math.max(0, d.getQuantity() - producedUpToDue);
+            System.out.printf("需求物料%s，需%d件，截止%s[#%d]，截止时累计产量=%d，缺口=%d%n",
                     d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getDueTimeSlotIndex(),
-                    producedUpToDue, Math.max(0, d.getQuantity() - producedUpToDue));
+                    producedUpToDue, shortage);
         }
     }
 

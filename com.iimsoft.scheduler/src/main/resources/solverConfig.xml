@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <solver>
     <solutionClass>com.iimsoft.scheduler.domain.ProductionSchedule</solutionClass>
-    <entityClass>com.iimsoft.scheduler.ProductionAssignment</entityClass>
+    <entityClass>com.iimsoft.scheduler.domain.ProductionAssignment</entityClass>
 
     <scoreDirectorFactory>
         <constraintProviderClass>com.iimsoft.scheduler.solver.ProductionConstraintProvider</constraintProviderClass>
