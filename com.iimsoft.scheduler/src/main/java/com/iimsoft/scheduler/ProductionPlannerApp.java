@@ -93,21 +93,23 @@ public class ProductionPlannerApp {
         // 11) 输出
         System.out.println("最佳分数 = " + best.getScore());
 
-        // 按日期-产线-小时输出（正序展示，便于阅读）
-        best.getPlanList().stream()
-                .sorted(Comparator.<HourPlan, LocalDate>comparing(p -> p.getSlot().getDate())
-                        .thenComparing(p -> p.getLine().getName())
-                        .thenComparingInt(p -> p.getSlot().getHourOfDay()))
-                .forEach(p -> {
-                    String dateStr = p.getSlot().getDate().toString();
-                    String lineName = p.getLine().getName();
-                    int h = p.getSlot().getHourOfDay();
-                    int qty = p.getQuantity() == null ? 0 : p.getQuantity();
-                    String itemCode = (qty > 0 && p.getItem() != null) ? p.getItem().getCode() : "-";
-                    System.out.printf("%s %s %02d:00 - item=%s, qty=%d%n", dateStr, lineName, h, itemCode, qty);
-                });
+// 按生产线分组展示
+        best.getLineList().forEach(line -> {
+            System.out.println("\n生产线：" + line.getName());
+            best.getPlanList().stream()
+                    .filter(p -> p.getLine().equals(line))
+                    .sorted(Comparator.<HourPlan, LocalDate>comparing(p -> p.getSlot().getDate())
+                            .thenComparingInt(p -> p.getSlot().getHourOfDay()))
+                    .forEach(p -> {
+                        String dateStr = p.getSlot().getDate().toString();
+                        int h = p.getSlot().getHourOfDay();
+                        int qty = p.getQuantity() == null ? 0 : p.getQuantity();
+                        String itemCode = (qty > 0 && p.getItem() != null) ? p.getItem().getCode() : "-";
+                        System.out.printf("%s %02d:00 - item=%s, qty=%d%n", dateStr, h, itemCode, qty);
+                    });
+        });
 
-        // 汇总对比：按物料累计总量
+// 汇总对比：按物料累计总量
         Map<Item, Integer> producedByItem = best.getPlanList().stream()
                 .filter(p -> p.getItem() != null && p.getQuantity() != null && p.getQuantity() > 0)
                 .collect(Collectors.groupingBy(HourPlan::getItem, Collectors.summingInt(HourPlan::getQuantity)));

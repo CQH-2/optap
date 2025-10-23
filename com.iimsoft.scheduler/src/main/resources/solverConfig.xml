@@ -1,12 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <solver>
     <solutionClass>com.iimsoft.scheduler.domain.ProductionSchedule</solutionClass>
-    <!-- 规划实体改为 HourPlan -->
     <entityClass>com.iimsoft.scheduler.domain.HourPlan</entityClass>
 
     <scoreDirectorFactory>
         <scoreDrl>rules/productionConstraints.drl</scoreDrl>
     </scoreDirectorFactory>
+
+    <constructionHeuristic>
+        <constructionHeuristicType>FIRST_FIT</constructionHeuristicType>
+    </constructionHeuristic>
+
+    <localSearch>
+        <unionMoveSelector>
+            <cartesianProductMoveSelector>
+                <changeMoveSelector variableName="item"/>
+                <changeMoveSelector variableName="quantity"/>
+            </cartesianProductMoveSelector>
+            <changeMoveSelector variableName="item"/>
+            <changeMoveSelector variableName="quantity"/>
+        </unionMoveSelector>
+        <acceptor>
+            <lateAcceptanceSize>200</lateAcceptanceSize>
+        </acceptor>
+        <forager>
+            <acceptedCountLimit>500</acceptedCountLimit>
+        </forager>
+    </localSearch>
 
     <termination>
         <secondsSpentLimit>10</secondsSpentLimit>
