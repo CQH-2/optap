@@ -1,8 +1,12 @@
 package com.iimsoft.scheduler;
 
 import com.iimsoft.scheduler.domain.*;
+import com.iimsoft.scheduler.ga.GeneticAlgorithmScheduler;
 import com.iimsoft.scheduler.util.HourSlotGenerator;
 import com.iimsoft.scheduler.util.WorkingHours;
+import org.optaplanner.core.api.score.ScoreManager;
+import org.optaplanner.core.api.score.ScoreManagerFactory;
+import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScore;
 import org.optaplanner.core.api.solver.Solver;
 import org.optaplanner.core.api.solver.SolverFactory;
 
@@ -29,14 +33,14 @@ public class ProductionPlannerApp {
         rFab.getSupportedItems().add(b);   // B 用加工
         rFab.getSupportedItems().add(c);   // C 用加工
 
-        // 3) 产线与速率（按“件/小时”配置，更直观）
+        // 3) 产线与速率（件/小时）
         Line l1 = new Line(1L, "L1");
         l1.getSupportedRouters().add(rAsm);
-        l1.putUnitsPerHour(rAsm, 30); // 每小时 30 件
+        l1.putUnitsPerHour(rAsm, 30);
 
         Line l2 = new Line(2L, "L2");
         l2.getSupportedRouters().add(rFab);
-        l2.putUnitsPerHour(rFab, 60); // 每小时 60 件
+        l2.putUnitsPerHour(rFab, 60);
 
         List<Item> items = Arrays.asList(a, b, c);
         List<Router> routers = Arrays.asList(rAsm, rFab);
@@ -56,14 +60,14 @@ public class ProductionPlannerApp {
         // 6) 将需求按 BOM 展开 → Requirement 列表
         List<Requirement> requirements = explodeDemandsToRequirements(demands, bom);
 
-        // 7) “倒推固定2天”的小时槽位：以最大交期为结束，窗口仅覆盖2天
+        // 7) “倒推固定2天”的小时槽位
         WorkingHours workingHours = new WorkingHours(8, 17); // 工作时段 8:00-17:00
-        long baseId = 10_000L;                               // 槽位起始ID
+        long baseId = 10_000L;
         List<LineHourSlot> hourSlots = HourSlotGenerator.buildBackwardSlotsForDays(
                 lines, requirements, workingHours, 2, baseId
         );
 
-        // 8) 为每个小时槽位创建一个 HourPlan（变量 item、quantity 由求解器决定）
+        // 8) 为每个小时槽位创建一个 HourPlan（变量 item、quantity）
         List<HourPlan> plans = new ArrayList<>();
         AtomicLong planId = new AtomicLong(1_000_000L);
         for (LineHourSlot s : hourSlots) {
@@ -80,25 +84,43 @@ public class ProductionPlannerApp {
         problem.setDemandList(demands);
         problem.setRequirementList(requirements);
         problem.setPlanList(plans);
-
-        // 与件/小时能力相匹配的数量上限（不必太大，缩小搜索空间）
         problem.setMaxQuantityPerHour(60);
 
-        // 10) 求解
-        SolverFactory<ProductionSchedule> factory =
+        // 10) 构建 ScoreManager（沿用 DRL 约束以评估 GA 个体）
+        SolverFactory<ProductionSchedule> solverFactory =
                 SolverFactory.createFromXmlResource("solverConfig.xml");
-        Solver<ProductionSchedule> solver = factory.buildSolver();
-        ProductionSchedule best = solver.solve(problem);
+        ScoreManager<ProductionSchedule, HardSoftScore> scoreManager =
+                ScoreManagerFactory.create(solverFactory);
 
-        // 11) 基于结果构建“子件库存快照”
-        // 注意：只对“当前时刻有安排 item 且 qty>0 的计划”记录快照；
-        // 空闲计划不显示库存，避免出现“item=- 但库存却在变”的困惑。
-        ChildInvSnapshots snapshots = buildChildInventorySnapshots(best);
+        // 11) 运行遗传算法（默认），可通过系统属性切回原本解器：-Duse.optaplanner=true
+        boolean useOptaPlannerSolver = Boolean.getBoolean("use.optaplanner");
+        ProductionSchedule best;
+        if (useOptaPlannerSolver) {
+            Solver<ProductionSchedule> solver = solverFactory.buildSolver();
+            best = solver.solve(problem);
+        } else {
+            GeneticAlgorithmScheduler.GAParams ga = new GeneticAlgorithmScheduler.GAParams();
+            ga.populationSize = 160;
+            ga.generations = 500;
+            ga.crossoverRate = 0.9;
+            ga.mutationRate = 0.025;
+            ga.tournamentSize = 5;
+            ga.eliteCount = 2;
+            ga.parallelEvaluation = true;
+            ga.randomSeed = 0L; // 非0则可复现
+
+            GeneticAlgorithmScheduler scheduler = new GeneticAlgorithmScheduler(scoreManager, ga.randomSeed);
+            long t0 = System.currentTimeMillis();
+            best = scheduler.solve(problem, ga);
+            long t1 = System.currentTimeMillis();
+            System.out.println("GA solve time = " + (t1 - t0) + " ms");
+        }
 
         // 12) 输出
         System.out.println("最佳分数 = " + best.getScore());
 
-        // 按生产线分组展示（仅当该时刻此计划有生产时打印子件库存；否则以 '-' 占位）
+        ChildInvSnapshots snapshots = buildChildInventorySnapshots(best);
+
         best.getLineList().forEach(line -> {
             System.out.println("\n生产线：" + line.getName());
             best.getPlanList().stream()
@@ -123,7 +145,6 @@ public class ProductionPlannerApp {
                     });
         });
 
-        // 汇总对比：按物料累计总量
         Map<Item, Integer> producedByItem = best.getPlanList().stream()
                 .filter(p -> p.getItem() != null && p.getQuantity() != null && p.getQuantity() > 0)
                 .collect(Collectors.groupingBy(HourPlan::getItem, Collectors.summingInt(HourPlan::getQuantity)));
@@ -179,11 +200,9 @@ public class ProductionPlannerApp {
     }
 
     // ============ 展示辅助：构建“每个计划开始前”的子件库存快照 ============
-    // 关键点：仅对 hasProd(plan)=true 的计划生成快照；空槽不生成、不显示。
     private static class ChildInvSnapshots {
         final Map<Long, Map<Item, Integer>> perPlanChildInv;
         final List<Item> childItemsInBom;
-
         ChildInvSnapshots(Map<Long, Map<Item, Integer>> perPlanChildInv, List<Item> childItemsInBom) {
             this.perPlanChildInv = perPlanChildInv;
             this.childItemsInBom = childItemsInBom;
@@ -191,10 +210,8 @@ public class ProductionPlannerApp {
     }
 
     private static ChildInvSnapshots buildChildInventorySnapshots(ProductionSchedule sol) {
-        // BOM 结构
         List<BomComponent> bomList = sol.getBomList() == null ? Collections.emptyList() : sol.getBomList();
 
-        // 参与“子件”的集合（所有在 BOM 里出现过的 childItem，保持顺序便于展示）
         LinkedHashSet<Item> childSet = new LinkedHashSet<>();
         for (BomComponent bc : bomList) {
             if (bc != null && bc.getChildItem() != null) {
@@ -203,20 +220,17 @@ public class ProductionPlannerApp {
         }
         List<Item> childItems = new ArrayList<>(childSet);
 
-        // 父 -> 子 列表映射（用于消耗）
         Map<Item, List<BomComponent>> childrenByParent = new HashMap<>();
         for (BomComponent bc : bomList) {
             if (bc == null || bc.getParentItem() == null) continue;
             childrenByParent.computeIfAbsent(bc.getParentItem(), k -> new ArrayList<>()).add(bc);
         }
 
-        // 期初可用：默认 0（如需期初库存，可在模型中补 Inventory 并在此读取）
         Map<Item, Integer> available = new HashMap<>();
         for (Item child : childItems) {
             available.put(child, 0);
         }
 
-        // 按“小时开始时间索引”分组（同一时刻：先记录快照，再统一结转当时产出与消耗）
         Map<Long, List<HourPlan>> plansByStart = sol.getPlanList().stream()
                 .collect(Collectors.groupingBy(HourPlan::getStartIndex));
 
@@ -228,10 +242,9 @@ public class ProductionPlannerApp {
         for (Long t : times) {
             List<HourPlan> group = plansByStart.getOrDefault(t, Collections.emptyList());
 
-            // 1) 仅对“本时刻有生产的计划”记录快照（生产前库存）
             for (HourPlan p : group) {
                 int q = (p.getQuantity() == null) ? 0 : p.getQuantity();
-                if (p.getItem() == null || q <= 0) continue; // 空槽不记录
+                if (p.getItem() == null || q <= 0) continue;
                 Map<Item, Integer> snap = new LinkedHashMap<>();
                 for (Item child : childItems) {
                     snap.put(child, available.getOrDefault(child, 0));
@@ -239,18 +252,15 @@ public class ProductionPlannerApp {
                 result.put(p.getId(), snap);
             }
 
-            // 2) 结转：先增加本时刻的产出（对一切有生产的计划）
             for (HourPlan p : group) {
                 int q = (p.getQuantity() == null) ? 0 : p.getQuantity();
                 Item it = p.getItem();
                 if (it == null || q <= 0) continue;
-                // 子件自身被生产时，库存增加；父件生产不会直接增加子件库存
                 if (childSet.contains(it)) {
                     available.merge(it, q, Integer::sum);
                 }
             }
 
-            // 3) 再扣减装配消耗（父件生产会消耗子件）
             for (HourPlan p : group) {
                 int q = (p.getQuantity() == null) ? 0 : p.getQuantity();
                 Item parent = p.getItem();

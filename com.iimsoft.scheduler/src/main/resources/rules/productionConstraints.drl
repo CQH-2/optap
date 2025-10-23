@@ -4,8 +4,6 @@ dialect "java"
 import com.iimsoft.scheduler.domain.HourPlan
 import com.iimsoft.scheduler.domain.Line
 import com.iimsoft.scheduler.domain.Requirement
-import com.iimsoft.scheduler.domain.Inventory
-import com.iimsoft.scheduler.domain.BomComponent
 import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScoreHolder
 
 global HardSoftScoreHolder scoreHolder
@@ -36,7 +34,7 @@ then
     scoreHolder.addHardConstraintMatch(kcontext, -1);
 end
 
-// 硬约束（件/小时能力）：数量 ≤ 产线对该物料的“件/小时”能力
+// 硬约束（改为件/小时能力）：数量 ≤ 产线对该物料的“件/小时”能力
 rule "Hourly quantity must not exceed units-per-hour capacity"
 when
     $hp : HourPlan(item != null, $line : slot.line, $item : item, $q : quantity)
@@ -63,42 +61,24 @@ then
     scoreHolder.addHardConstraintMatch(kcontext, -shortage);
 end
 
-// 硬约束：装配前子件动态库存必须满足
-// 可用子件 = 期初库存(Inventory) + 截至当前(含当前开始前)子件产出 − 截至当前(含当前开始前)历史装配对该子件的消耗
-rule "Child inventory must be sufficient before assembly"
+// 软约束：夜间（18:00 及以后）生产惩罚
+rule "Penalize night hours"
 when
-    // 当前装配（父物料）
-    $plan : HourPlan(item != null, $parent : item, $q : quantity, $start : startIndex)
-    eval($q != null && $q.intValue() > 0)
-    // 当前装配需要的子件及其用量
-    $bom : BomComponent(parentItem == $parent, $child : childItem, $per : quantityPer)
-
-    // 期初库存（该子件）
-    $inv : Number() from accumulate(
-        Inventory(item == $child, $on : onHandQty),
-        sum($on)
-    )
-
-    // 截至当前开始时刻（<= start）该子件累计产出
-    $prod : Number() from accumulate(
-        HourPlan(item == $child, $pq : quantity, $pend : endIndex,
-                 eval($pq != null && $pq.intValue() > 0
-                      && $pend != null && $pend.longValue() <= $start.longValue())),
-        sum($pq)
-    )
-
-    // 截至当前开始时刻（<= start）历史装配对该子件的累计消耗
-    $cons : Number() from accumulate(
-        BomComponent(childItem == $child, $p2 : parentItem, $per2 : quantityPer) and
-        HourPlan(item == $p2, $cq : quantity, $cend : endIndex,
-                 eval($cq != null && $cq.intValue() > 0
-                      && $cend != null && $cend.longValue() <= $start.longValue())),
-        sum($cq.intValue() * $per2)
-    )
-
-    // 若可用子件不足以支撑本次装配用量，则违规（大罚可按需调大）
-    eval( ($inv.intValue() + $prod.intValue() - $cons.intValue()) < ($q.intValue() * $per) )
+    HourPlan(item != null, quantity != null, eval(quantity.intValue() > 0),
+             $startMin : slot.startMinuteOfDay, eval($startMin >= (18 * 60)))
 then
-    scoreHolder.addHardConstraintMatch(kcontext, -10000);
+    scoreHolder.addSoftConstraintMatch(kcontext, -100);
 end
 
+// 软约束：同一条产线的负载尽量均衡（平方惩罚）
+rule "Balance line load"
+when
+    $line : Line()
+    $sum : Number() from accumulate(
+        HourPlan(slot.line == $line, quantity != null, $q : quantity),
+        sum($q)
+    )
+then
+    int load = $sum.intValue();
+    scoreHolder.addSoftConstraintMatch(kcontext, -(load * load));
+end

@@ -3,134 +3,48 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
-    <parent>
-        <artifactId>com.iimsoft.parent</artifactId>
-        <groupId>com.iimsoft</groupId>
-        <version>10.0.0</version>
-        <relativePath>../pom.xml</relativePath>
-    </parent>
-
     <groupId>com.iimsoft.scheduler</groupId>
     <artifactId>com.iimsoft.scheduler</artifactId>
-    <version>10.0.0</version>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
     <name>com.iimsoft.scheduler</name>
+
     <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <iimsoftnba.version>[1,10.0.0]</iimsoftnba.version>
-        <nbanext.version>[11.0.0]</nbanext.version>
-        <kafka.version>2.3.0</kafka.version>
-        <pjm.version>10.0.0</pjm.version>
-        <nbabase.version>11.0.0</nbabase.version>
+        <optaplanner.version>9.44.0.Final</optaplanner.version>
+        <lombok.version>1.18.30</lombok.version>
     </properties>
 
     <dependencies>
+        <!-- OptaPlanner 最新版 -->
         <dependency>
-            <groupId>com.iimsoft.nba.base</groupId>
-            <artifactId>com.iimsoft.nba.base</artifactId>
-            <version>10.0.0</version>
+            <groupId>org.optaplanner</groupId>
+            <artifactId>optaplanner-core</artifactId>
+            <version>${optaplanner.version}</version>
         </dependency>
 
-        <dependency>
-            <groupId>com.iimsoft.iimsofttech.iimsofttech</groupId>
-            <artifactId>com.iimsoft.iimsofttech.iimsofttech.base</artifactId>
-            <version>${nbabase.version}</version>
-            <scope>compile</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>com.alibaba</groupId>
-            <artifactId>fastjson</artifactId>
-            <version>1.2.66</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.aliyun</groupId>
-            <artifactId>facebody20191230</artifactId>
-            <version>5.1.2</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.aliyun</groupId>
-                    <artifactId>credentials-java</artifactId><!--默认版本函数有问题-->
-                    <!--public AlibabaCloudCredentials getCredential(Config config) throws IOException, CredentialException, ParseException {-->
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.aliyun</groupId>
-            <artifactId>credentials-java</artifactId>
-            <version>1.0.1</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.iimsoft.util</groupId>
-            <artifactId>com.iimsoft.util</artifactId>
-            <version>${iimsoftnba.version}</version>
-        </dependency>
+        <!-- Lombok (代码简化) -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
             <scope>provided</scope>
         </dependency>
+
+        <!-- JUnit (如需测试，可选) -->
         <dependency>
-            <groupId>com.iimsoft.mom</groupId>
-            <artifactId>com.iimsoft.mom</artifactId>
-            <version>10.0.0</version>
-        </dependency>
-        <dependency>
-            <groupId>com.iimsoft.les</groupId>
-            <artifactId>com.iimsoft.les</artifactId>
-            <version>10.0.0</version>
-            <scope>compile</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.iimsoft.mes.base</groupId>
-            <artifactId>com.iimsoft.mes.base</artifactId>
-            <version>10.0.0</version>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.1</version>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
-            <groupId>org.apache.httpcomponents</groupId>
-            <artifactId>httpmime</artifactId>
-            <version>4.5.3</version>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.12</version>
         </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.dataformat</groupId>
-            <artifactId>jackson-dataformat-xml</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-math3</artifactId>
-            <version>3.6.1</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.iimsoft.interfaces.base</groupId>
-            <artifactId>com.iimsoft.interfaces.base</artifactId>
-            <version>10.0.0</version>
-        </dependency>
-
-            <dependency>
-                <groupId>org.optaplanner</groupId>
-                <artifactId>optaplanner-core</artifactId>
-                <version>7.73.0.Final</version>
-            </dependency>
-
-
-        <dependency>
-            <groupId>com.iimsoft.async</groupId>
-            <artifactId>com.iimsoft.async</artifactId>
-            <version>10.0.0</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.iimsoft.iimsofttech.iimsofttech</groupId>
-                    <artifactId>com.iimsoft.iimsofttech.iimsofttech.base</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
     </dependencies>
-
 </project>
