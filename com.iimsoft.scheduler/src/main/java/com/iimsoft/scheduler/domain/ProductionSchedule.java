@@ -1,101 +1,73 @@
 package com.iimsoft.scheduler.domain;
 
-import java.util.ArrayList;
 import java.util.List;
-import org.optaplanner.core.api.domain.solution.PlanningSolution;
-import org.optaplanner.core.api.domain.solution.ProblemFactCollectionProperty;
+
 import org.optaplanner.core.api.domain.solution.PlanningEntityCollectionProperty;
+import org.optaplanner.core.api.domain.solution.PlanningScore;
+import org.optaplanner.core.api.domain.solution.PlanningSolution;
+
+
+import org.optaplanner.core.api.domain.solution.ProblemFactCollectionProperty;
 import org.optaplanner.core.api.domain.valuerange.ValueRangeProvider;
 import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScore;
-import org.optaplanner.core.api.domain.solution.PlanningScore;
+
 
 @PlanningSolution
 public class ProductionSchedule {
 
-    // 物料集合作为取值域
-    @ValueRangeProvider(id = "itemRange")
+    // 值域与事实
     @ProblemFactCollectionProperty
-    private List<Item> itemList = new ArrayList<>();
+    @ValueRangeProvider(id = "routerRange")
+    private List<Router> routerList;
 
     @ProblemFactCollectionProperty
-    private List<Line> lineList = new ArrayList<>();
+    private List<ProductionLine> lineList;
 
     @ProblemFactCollectionProperty
-    private List<Router> routerList = new ArrayList<>();
-
-    // 每小时的产线时隙（问题事实）
-    @ProblemFactCollectionProperty
-    private List<LineHourSlot> hourSlotList = new ArrayList<>();
-
-    // 需求、BOM、库存
-    @ProblemFactCollectionProperty
-    private List<BomComponent> bomList = new ArrayList<>();
+    private List<TimeSlot> timeSlotList;
 
     @ProblemFactCollectionProperty
-    private List<Demand> demandList = new ArrayList<>();
+    private List<BomArc> bomArcList;
 
     @ProblemFactCollectionProperty
-    private List<Inventory> inventoryList = new ArrayList<>();
+    private List<DemandOrder> demandList;
 
-    @ProblemFactCollectionProperty
-    private List<Requirement> requirementList = new ArrayList<>();
-
-    // 规划实体：每小时的生产分配（变量为 item、quantity）
+    // 规划实体：每条产线每个时段的格子
     @PlanningEntityCollectionProperty
-    private List<HourPlan> planList = new ArrayList<>();
-
-    // 数量取值域（0..maxQuantityPerHour）
-    private int maxQuantityPerHour = 200;
-
-    @ValueRangeProvider(id = "quantityRange")
-    public List<Integer> getQuantityRange() {
-        int max = Math.max(0, maxQuantityPerHour);
-        List<Integer> range = new ArrayList<>(max + 1);
-        for (int i = 0; i <= max; i++) {
-            range.add(i);
-        }
-        return range;
-    }
+    private List<ProductionAssignment> assignmentList;
 
     @PlanningScore
     private HardSoftScore score;
 
     public ProductionSchedule() {}
 
-    public List<Item> getItemList() { return itemList; }
-    public void setItemList(List<Item> itemList) { this.itemList = nn(itemList); }
-
-    public List<Line> getLineList() { return lineList; }
-    public void setLineList(List<Line> lineList) { this.lineList = nn(lineList); }
+    public ProductionSchedule(List<Router> routerList,
+                              List<ProductionLine> lineList,
+                              List<TimeSlot> timeSlotList,
+                              List<BomArc> bomArcList,
+                              List<DemandOrder> demandList,
+                              List<ProductionAssignment> assignmentList) {
+        this.routerList = routerList;
+        this.lineList = lineList;
+        this.timeSlotList = timeSlotList;
+        this.bomArcList = bomArcList;
+        this.demandList = demandList;
+        this.assignmentList = assignmentList;
+    }
 
     public List<Router> getRouterList() { return routerList; }
-    public void setRouterList(List<Router> routerList) { this.routerList = nn(routerList); }
-
-    public List<LineHourSlot> getHourSlotList() { return hourSlotList; }
-    public void setHourSlotList(List<LineHourSlot> hourSlotList) { this.hourSlotList = nn(hourSlotList); }
-
-    public List<BomComponent> getBomList() { return bomList; }
-    public void setBomList(List<BomComponent> bomList) { this.bomList = nn(bomList); }
-
-    public List<Demand> getDemandList() { return demandList; }
-    public void setDemandList(List<Demand> demandList) { this.demandList = nn(demandList); }
-
-    public List<Inventory> getInventoryList() { return inventoryList; }
-    public void setInventoryList(List<Inventory> inventoryList) { this.inventoryList = nn(inventoryList); }
-
-    public List<Requirement> getRequirementList() { return requirementList; }
-    public void setRequirementList(List<Requirement> requirementList) { this.requirementList = nn(requirementList); }
-
-    public List<HourPlan> getPlanList() { return planList; }
-    public void setPlanList(List<HourPlan> planList) { this.planList = nn(planList); }
-
-    public int getMaxQuantityPerHour() { return maxQuantityPerHour; }
-    public void setMaxQuantityPerHour(int maxQuantityPerHour) { this.maxQuantityPerHour = maxQuantityPerHour; }
-
+    public List<ProductionLine> getLineList() { return lineList; }
+    public List<TimeSlot> getTimeSlotList() { return timeSlotList; }
+    public List<BomArc> getBomArcList() { return bomArcList; }
+    public List<DemandOrder> getDemandList() { return demandList; }
+    public List<ProductionAssignment> getAssignmentList() { return assignmentList; }
     public HardSoftScore getScore() { return score; }
-    public void setScore(HardSoftScore score) { this.score = score; }
 
-    private static <T> List<T> nn(List<T> in) {
-        return in == null ? new ArrayList<>() : in;
-    }
+    public void setRouterList(List<Router> routerList) { this.routerList = routerList; }
+    public void setLineList(List<ProductionLine> lineList) { this.lineList = lineList; }
+    public void setTimeSlotList(List<TimeSlot> timeSlotList) { this.timeSlotList = timeSlotList; }
+    public void setBomArcList(List<BomArc> bomArcList) { this.bomArcList = bomArcList; }
+    public void setDemandList(List<DemandOrder> demandList) { this.demandList = demandList; }
+    public void setAssignmentList(List<ProductionAssignment> assignmentList) { this.assignmentList = assignmentList; }
+    public void setScore(HardSoftScore score) { this.score = score; }
 }

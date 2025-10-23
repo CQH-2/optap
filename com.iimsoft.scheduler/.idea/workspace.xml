@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="8ac21d8f-64b6-432c-9ff1-de98d962da67" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/App.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/BomArc.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/DemandOrder.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/ProductionAssignment.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/ProductionLine.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/TimeSlot.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/solver/ProductionConstraintProvider.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc/mes-scheduler_README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/pom.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/ProductionPlannerApp.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/BomComponent.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/Demand.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/HourPlan.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/Inventory.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/Item.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/Item.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/Line.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/LineHourSlot.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/ProductionSchedule.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/ProductionSchedule.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/Requirement.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/Router.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/Router.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/Shift.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/process/SchedulerProcess.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/util/HourSlotGenerator.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/util/WorkingHours.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/resources/solverConfig.xml" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/resources/solverConfig.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../src/main/java/org/iimsoft/scheduler/tmp.java" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 1
+}]]></component>
+  <component name="ProjectId" id="34SlVd4Vi2uIvtMouLTbDRrcnMN" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Application.App.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "optaplanner",
+    "project.structure.last.edited": "Modules",
+    "project.structure.proportion": "0.0",
+    "project.structure.side.proportion": "0.0"
+  }
+}]]></component>
+  <component name="RunManager">
+    <configuration name="App" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="com.iimsoft.scheduler.App" />
+      <module name="com.iimsoft.scheduler" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="com.iimsoft.scheduler.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Application.App" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="8ac21d8f-64b6-432c-9ff1-de98d962da67" name="Changes" comment="" />
+      <created>1761214880127</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1761214880127</updated>
+    </task>
+    <servers />
+  </component>
+</project>
