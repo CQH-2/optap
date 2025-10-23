@@ -3,6 +3,7 @@ package com.iimsoft.scheduler;
 import com.iimsoft.scheduler.domain.*;
 import org.optaplanner.core.api.solver.SolverFactory;
 import org.optaplanner.core.api.solver.SolverManager;
+import org.optaplanner.core.api.solver.SolutionManager; // 新增
 
 import java.time.LocalDate;
 import java.util.*;
@@ -32,6 +33,11 @@ public class App {
         long problemId = 1L;
 
         ProductionSchedule solution = solverManager.solve(problemId, problem).getFinalBestSolution();
+
+        // 使用 SolutionManager 代替已废弃的 ScoreManager
+        var solutionManager = SolutionManager.create(solverFactory);
+        var explanation = solutionManager.explain(solution);
+        System.out.println(explanation.getSummary());
 
         System.out.println("Score: " + solution.getScore());
         printSchedule(solution);

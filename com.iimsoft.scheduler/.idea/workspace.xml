@@ -31,6 +31,7 @@
       <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/process/SchedulerProcess.java" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/util/HourSlotGenerator.java" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/util/WorkingHours.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/resources/rules/productionConstraints.drl" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main/resources/solverConfig.xml" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/resources/solverConfig.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/../src/main/java/org/iimsoft/scheduler/tmp.java" beforeDir="false" />
     </list>
@@ -42,9 +43,9 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 1
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1
+}</component>
   <component name="ProjectId" id="34SlVd4Vi2uIvtMouLTbDRrcnMN" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -52,7 +53,8 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
-    "Application.App.executor": "Run",
+    "Application.App.executor": "Debug",
+    "Maven.com.iimsoft.scheduler [clean].executor": "Run",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
@@ -96,9 +98,14 @@
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint enabled="true" type="java-line">
-          <url>jar://$PROJECT_DIR$/../../../environment/jdk/17/jdk-17.0.12/lib/src.zip!/java.base/java/lang/ClassLoader.java</url>
-          <line>1399</line>
-          <option name="timeStamp" value="1" />
+          <url>file://$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/solver/ProductionConstraintProvider.java</url>
+          <line>43</line>
+          <option name="timeStamp" value="4" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/solver/ProductionConstraintProvider.java</url>
+          <line>18</line>
+          <option name="timeStamp" value="8" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
