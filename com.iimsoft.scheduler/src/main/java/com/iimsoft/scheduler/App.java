@@ -1,6 +1,5 @@
 package com.iimsoft.scheduler;
 
-
 import com.iimsoft.scheduler.domain.*;
 import org.optaplanner.core.api.solver.SolverFactory;
 import org.optaplanner.core.api.solver.SolverManager;
@@ -9,7 +8,6 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 public class App {
 
@@ -23,6 +21,7 @@ public class App {
                 data.lines,
                 data.timeSlots,
                 data.bomArcs,
+                data.inventories,
                 data.demands,
                 data.assignments
         );
@@ -36,6 +35,7 @@ public class App {
 
         System.out.println("Score: " + solution.getScore());
         printSchedule(solution);
+        printComponentInventoryTimeline(solution);
     }
 
     private static void printSchedule(ProductionSchedule solution) {
@@ -48,6 +48,11 @@ public class App {
         for (BomArc arc : solution.getBomArcList()) {
             System.out.printf("总成物料：%s 需要 子件：%s 数量：%d%n",
                     arc.getParent().getCode(), arc.getChild().getCode(), arc.getQuantityPerParent());
+        }
+
+        System.out.println("\n==== 初始库存 ====");
+        for (ItemInventory inv : solution.getInventoryList()) {
+            System.out.printf("物料：%s 初始在库：%d%n", inv.getItem().getCode(), inv.getInitialOnHand());
         }
 
         System.out.println("\n==== 生产线与工艺能力 ====");
@@ -87,19 +92,60 @@ public class App {
         System.out.println("\n==== 产量汇总 ====");
         producedByItem.forEach((item, sum) ->
                 System.out.printf("物料%s 总产量：%d%n", item.getCode(), sum));
+    }
 
-        System.out.println("\n==== 需求完成情况 ====");
-        for (DemandOrder d : solution.getDemandList()) {
-            int producedUpToDue = assignments.stream()
-                    .filter(a -> a.getRouter() != null
-                            && d.getItem().equals(a.getProducedItem())
-                            && a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex())
-                    .mapToInt(ProductionAssignment::getProducedQuantity)
-                    .sum();
-            int shortage = Math.max(0, d.getQuantity() - producedUpToDue);
-            System.out.printf("需求物料%s，需%d件，截止%s[#%d]，截止时累计产量=%d，缺口=%d%n",
-                    d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getDueTimeSlotIndex(),
-                    producedUpToDue, shortage);
+    // 打印“子件库存逐时演进”，让你看到在父件生产时子件是否够
+    private static void printComponentInventoryTimeline(ProductionSchedule solution) {
+        System.out.println("\n==== 子件库存逐时演进（CSV）====");
+        // 只统计作为“子件”出现过的物料
+        Set<Item> componentItems = solution.getBomArcList().stream()
+                .map(BomArc::getChild)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<Item, Integer> initial = solution.getInventoryList().stream()
+                .collect(Collectors.toMap(ItemInventory::getItem, ItemInventory::getInitialOnHand));
+
+        // 为保证顺序，按 index 排序
+        List<TimeSlot> orderedSlots = new ArrayList<>(solution.getTimeSlotList());
+        orderedSlots.sort(Comparator.comparingInt(TimeSlot::getIndex));
+
+        // 预聚合：每个时段每个物料的产量
+        Map<Integer, Map<Item, Integer>> producedAtSlot = solution.getAssignmentList().stream()
+                .filter(a -> a.getRouter() != null)
+                .collect(Collectors.groupingBy(a -> a.getTimeSlot().getIndex(),
+                        Collectors.groupingBy(ProductionAssignment::getProducedItem,
+                                Collectors.summingInt(ProductionAssignment::getProducedQuantity))));
+
+        // 预聚合：每个时段每个“父物料”的产量（用于子件消耗计算）
+        Map<Integer, Map<Item, Integer>> parentProducedAtSlot = producedAtSlot;
+
+        // BOM映射：子件 -> 其消耗项列表（父物料、用量）
+        Map<Item, List<BomArc>> childToArcs = solution.getBomArcList().stream()
+                .collect(Collectors.groupingBy(BomArc::getChild));
+
+        // CSV 头
+        System.out.println("date,hour,timeSlotIndex,item,begin_inv,produced,consumed,end_inv,warning");
+        for (Item child : componentItems) {
+            int onHand = initial.getOrDefault(child, 0);
+            for (TimeSlot ts : orderedSlots) {
+                int idx = ts.getIndex();
+                int produced = producedAtSlot
+                        .getOrDefault(idx, Map.of())
+                        .getOrDefault(child, 0);
+                int consumed = 0;
+                for (BomArc arc : childToArcs.getOrDefault(child, List.of())) {
+                    int parentQty = parentProducedAtSlot
+                            .getOrDefault(idx, Map.of())
+                            .getOrDefault(arc.getParent(), 0);
+                    consumed += parentQty * arc.getQuantityPerParent();
+                }
+                int end = onHand + produced - consumed;
+                String warning = end < 0 ? "NEGATIVE_INV" : "";
+                System.out.printf("%s,%02d,%d,%s,%d,%d,%d,%d,%s%n",
+                        ts.getDate(), ts.getHour(), idx, child.getCode(),
+                        onHand, produced, consumed, end, warning);
+                onHand = end;
+            }
         }
     }
 
@@ -110,6 +156,7 @@ public class App {
         List<Router> routers;
         List<ProductionLine> lines;
         List<TimeSlot> timeSlots;
+        List<ItemInventory> inventories;
         List<DemandOrder> demands;
         List<ProductionAssignment> assignments;
     }
@@ -144,19 +191,26 @@ public class App {
         L1.setSupportedRouters(List.of(rA1, rB1));
         L2.setSupportedRouters(List.of(rA2, rC1));
 
-        // 时间槽：2天，每天班次 8-19（12小时）
+        // 时间槽：两天 8-19（原样）
         LocalDate day1 = LocalDate.now();
         LocalDate day2 = day1.plusDays(1);
         List<TimeSlot> slots = new ArrayList<>();
         int index = 0;
         for (LocalDate d0 : List.of(day1, day2)) {
-            for (int h = 8; h <= 19; h++) { // 8..19 共12小时
+            for (int h = 8; h <= 19; h++) {
                 slots.add(new TimeSlot(d0, h, index++));
             }
         }
         d.timeSlots = slots;
 
-        // 需求：A 50件，截止到第1天最后一个班次小时
+        // 初始库存（可按需调整）
+        d.inventories = List.of(
+                new ItemInventory(A, 0),
+                new ItemInventory(B, 50),
+                new ItemInventory(C, 20)
+        );
+
+        // 需求：只对A设需求，子件不直接设需求
         int dueIndexDay1 = slots.stream()
                 .filter(s -> s.getDate().equals(day1))
                 .mapToInt(TimeSlot::getIndex)

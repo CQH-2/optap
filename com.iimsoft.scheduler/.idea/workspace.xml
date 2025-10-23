@@ -8,6 +8,7 @@
       <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/App.java" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/BomArc.java" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/DemandOrder.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/ItemInventory.java" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/ProductionAssignment.java" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/ProductionLine.java" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/src/main/java/com/iimsoft/scheduler/domain/TimeSlot.java" afterDir="false" />
@@ -51,7 +52,7 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
-    "Application.App.executor": "Debug",
+    "Application.App.executor": "Run",
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
