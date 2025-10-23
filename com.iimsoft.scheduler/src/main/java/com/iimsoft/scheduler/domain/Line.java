@@ -81,7 +81,7 @@ public class Line {
         return Math.max(0, 60 / mpu); // floor
     }
 
-    // 给定物料的“件/小时”能力（若多条工艺可做，取能力上限）
+
     public int getUnitsPerHourForItem(Item item) {
         if (item == null) return 0;
         int best = 0;
@@ -89,13 +89,12 @@ public class Line {
             Router r = e.getKey();
             Integer mpu = e.getValue();
             if (mpu != null && mpu > 0 && supportedRouters.contains(r) && r.supports(item)) {
-                int uph = 60 / mpu; // floor
+                int uph = 60 / mpu;
                 if (uph > best) best = uph;
             }
         }
         return best;
     }
-    // =====================================================
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

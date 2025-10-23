@@ -21,10 +21,10 @@
             <changeMoveSelector variableName="quantity"/>
         </unionMoveSelector>
         <acceptor>
-            <lateAcceptanceSize>200</lateAcceptanceSize>
+            <lateAcceptanceSize>500</lateAcceptanceSize>
         </acceptor>
         <forager>
-            <acceptedCountLimit>500</acceptedCountLimit>
+            <acceptedCountLimit>1000</acceptedCountLimit>
         </forager>
     </localSearch>
 

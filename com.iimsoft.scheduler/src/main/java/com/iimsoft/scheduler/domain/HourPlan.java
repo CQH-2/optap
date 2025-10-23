@@ -4,6 +4,9 @@ import org.optaplanner.core.api.domain.entity.PlanningEntity;
 import org.optaplanner.core.api.domain.variable.PlanningVariable;
 import org.optaplanner.core.api.domain.lookup.PlanningId;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @PlanningEntity
 public class HourPlan {
     @PlanningId
@@ -19,6 +22,9 @@ public class HourPlan {
     // 规划变量：数量（整数范围 0..maxQuantityPerHour）
     @PlanningVariable(valueRangeProviderRefs = "quantityRange")
     private Integer quantity;
+
+    // 可选扩展：该时点各物料库存快照（用于可视化/调试；约束中采用动态累计计算）
+    private Map<Item, Integer> inventoryMap = new HashMap<>();
 
     public HourPlan() {}
 
@@ -41,6 +47,9 @@ public class HourPlan {
     public Integer getQuantity() { return quantity; }
     public void setQuantity(Integer quantity) { this.quantity = quantity; }
 
+    public Map<Item, Integer> getInventoryMap() { return inventoryMap; }
+    public void setInventoryMap(Map<Item, Integer> inventoryMap) { this.inventoryMap = inventoryMap; }
+
     // 便捷访问
     public Line getLine() { return slot == null ? null : slot.getLine(); }
     public Long getStartIndex() { return slot == null ? null : slot.getStartIndex(); }
@@ -59,7 +68,7 @@ public class HourPlan {
         return req > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) req;
     }
 
-    // 新增：本槽位对应产线-物料的“件/小时”能力（用于容量约束）
+    // 本槽位对应产线-物料的“件/小时”能力（用于容量约束）
     public int getHourCapacityUnits() {
         if (slot == null || item == null) return 0;
         return slot.getLine().getUnitsPerHourForItem(item);
