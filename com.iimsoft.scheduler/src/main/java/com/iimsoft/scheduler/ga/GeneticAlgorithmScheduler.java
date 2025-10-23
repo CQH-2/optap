@@ -5,21 +5,23 @@ import com.iimsoft.scheduler.domain.Item;
 import com.iimsoft.scheduler.domain.Line;
 import com.iimsoft.scheduler.domain.LineHourSlot;
 import com.iimsoft.scheduler.domain.ProductionSchedule;
-import org.optaplanner.core.api.score.ScoreManager;
+import org.optaplanner.core.api.score.director.ScoreDirector;
+
 import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScore;
+import org.optaplanner.core.impl.score.director.ScoreDirectorFactory;
 
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.Supplier;
-import java.util.stream.IntStream;
 
 /**
  * 遗传算法求解器：
  * - 基因 = 对每个 HourPlan 的 (itemIndex, quantity)
- * - 适应度 = DRL 评分（HardSoftScore），用 ScoreManager 评估
+ * - 适应度 = DRL 评分（HardSoftScore），用 ScoreDirector 评估
  * - 选择 = 锦标赛
  * - 交叉 = 均匀交叉（逐基因，两变量联动）
  * - 变异 = 概率随机替换 item 或 quantity
+ *
+ * 注意：ScoreDirector 非线程安全，本实现为每次评估临时创建实例，避免并发问题。
  */
 public class GeneticAlgorithmScheduler {
 
@@ -34,46 +36,39 @@ public class GeneticAlgorithmScheduler {
         public int eliteCount = 2;   // 精英保留
     }
 
-    private final ScoreManager<ProductionSchedule, HardSoftScore> scoreManager;
+    private final ScoreDirectorFactory<ProductionSchedule> scoreDirectorFactory;
     private final Random rnd;
 
-    public GeneticAlgorithmScheduler(ScoreManager<ProductionSchedule, HardSoftScore> scoreManager, long seed) {
-        this.scoreManager = Objects.requireNonNull(scoreManager);
+    public GeneticAlgorithmScheduler(ScoreDirectorFactory<ProductionSchedule> scoreDirectorFactory, long seed) {
+        this.scoreDirectorFactory = Objects.requireNonNull(scoreDirectorFactory);
         this.rnd = (seed == 0L) ? null : new Random(seed);
     }
 
-    public GeneticAlgorithmScheduler(ScoreManager<ProductionSchedule, HardSoftScore> scoreManager) {
-        this(scoreManager, 0L);
+    public GeneticAlgorithmScheduler(ScoreDirectorFactory<ProductionSchedule> scoreDirectorFactory) {
+        this(scoreDirectorFactory, 0L);
     }
 
     public ProductionSchedule solve(ProductionSchedule baseProblem, GAParams params) {
         Objects.requireNonNull(baseProblem, "baseProblem");
         Objects.requireNonNull(params, "params");
 
-        // 固定事实
         List<Item> items = baseProblem.getItemList();
-        List<Line> lines = baseProblem.getLineList();
-        List<LineHourSlot> slots = baseProblem.getHourSlotList();
         List<HourPlan> plans = baseProblem.getPlanList();
         int nPlans = plans.size();
 
-        // 物料索引映射
-        Map<Item, Integer> itemToIdx = new HashMap<>(items.size() * 2);
-        for (int i = 0; i < items.size(); i++) itemToIdx.put(items.get(i), i);
-
-        // 针对每个 plan，预计算该产线允许的 item 索引集合（含 -1 表示空）
         int[][] allowedItemIdxPerPlan = new int[nPlans][];
-        int[] maxQtyPerPlanPerItem = new int[nPlans * Math.max(1, items.size())]; // 展平: planIdx*items + itemIdx -> uph
+        int[] maxQtyPerPlanPerItem = new int[nPlans * Math.max(1, items.size())];
         for (int p = 0; p < nPlans; p++) {
             Line line = plans.get(p).getLine();
             List<Integer> allowed = new ArrayList<>();
-            allowed.add(-1); // 空
+            allowed.add(-1);
             for (int i = 0; i < items.size(); i++) {
                 Item it = items.get(i);
                 if (line.supportsItem(it)) {
                     allowed.add(i);
                     int uph = Math.max(0, line.getUnitsPerHourForItem(it));
-                    maxQtyPerPlanPerItem[p * items.size() + i] = Math.min(uph, Math.max(1, baseProblem.getMaxQuantityPerHour()));
+                    maxQtyPerPlanPerItem[p * items.size() + i] =
+                            Math.min(uph, Math.max(1, baseProblem.getMaxQuantityPerHour()));
                 } else {
                     maxQtyPerPlanPerItem[p * items.size() + i] = 0;
                 }
@@ -81,28 +76,23 @@ public class GeneticAlgorithmScheduler {
             allowedItemIdxPerPlan[p] = allowed.stream().mapToInt(Integer::intValue).toArray();
         }
 
-        // 生成种群
         List<Genome> population = new ArrayList<>(params.populationSize);
         for (int k = 0; k < params.populationSize; k++) {
             Genome g = randomGenome(nPlans, allowedItemIdxPerPlan, maxQtyPerPlanPerItem, items.size(), baseProblem.getMaxQuantityPerHour());
             evaluateGenome(g, baseProblem, items);
             population.add(g);
         }
-        population.sort(Comparator.comparing((Genome g) -> g.score)); // HardSoftScore implements Comparable (越大越好)
+        population.sort(Comparator.comparing((Genome g) -> g.score));
 
-        // 演化
-        int noImprove = 0;
         Genome globalBest = population.get(population.size() - 1).copy();
         for (int gen = 1; gen <= params.generations; gen++) {
             List<Genome> next = new ArrayList<>(params.populationSize);
 
-            // 精英保留
             int elites = Math.min(params.eliteCount, population.size());
             for (int i = population.size() - elites; i < population.size(); i++) {
                 next.add(population.get(i).copy());
             }
 
-            // 产生后代
             while (next.size() < params.populationSize) {
                 Genome p1 = tournamentSelect(population, params.tournamentSize);
                 Genome p2 = tournamentSelect(population, params.tournamentSize);
@@ -120,31 +110,23 @@ public class GeneticAlgorithmScheduler {
                 if (next.size() < params.populationSize) next.add(c2);
             }
 
-            // 评估
             evaluatePopulation(next, baseProblem, items, params.parallelEvaluation);
             next.sort(Comparator.comparing((Genome g) -> g.score));
 
             Genome best = next.get(next.size() - 1);
             if (best.score.compareTo(globalBest.score) > 0) {
                 globalBest = best.copy();
-                noImprove = 0;
-            } else {
-                noImprove++;
             }
 
             population = next;
-            // 可加早停，例如 noImprove 连续超过某阈值
         }
 
-        // 回放最佳解为 ProductionSchedule
         return materialize(baseProblem, items, globalBest);
     }
 
-    // ============ Genome ============
-
     private static class Genome {
-        final int[] itemIdx; // -1 表示空
-        final int[] qty;     // 0..max
+        final int[] itemIdx;
+        final int[] qty;
         HardSoftScore score;
 
         Genome(int n) {
@@ -212,7 +194,6 @@ public class GeneticAlgorithmScheduler {
                         g.itemIdx[p] = -1;
                         g.qty[p] = 0;
                     } else {
-                        // 50% 概率微调数量，否则完全重抽
                         if (randomBoolean()) {
                             int delta = randomInt(-3, 4);
                             int q = Math.max(1, Math.min(maxQ, g.qty[p] + delta));
@@ -248,12 +229,15 @@ public class GeneticAlgorithmScheduler {
 
     private void evaluateGenome(Genome g, ProductionSchedule base, List<Item> items) {
         ProductionSchedule sol = materialize(base, items, g);
-        HardSoftScore s = scoreManager.updateScore(sol);
-        g.score = s;
+        // 每次评估创建独立 ScoreDirector，确保线程安全
+        try (ScoreDirector<ProductionSchedule> scoreDirector = scoreDirectorFactory.buildScoreDirector()) {
+            scoreDirector.setWorkingSolution(sol);
+            HardSoftScore s = (HardSoftScore) scoreDirector.calculateScore();
+            g.score = s;
+        }
     }
 
     private ProductionSchedule materialize(ProductionSchedule base, List<Item> items, Genome g) {
-        // 深拷贝固定事实引用（浅复制集合，事实对象复用；计划实体新建）
         ProductionSchedule s = new ProductionSchedule();
         s.setItemList(base.getItemList());
         s.setLineList(base.getLineList());
@@ -278,8 +262,6 @@ public class GeneticAlgorithmScheduler {
         s.setPlanList(newPlans);
         return s;
     }
-
-    // ============ RNG helpers ============
 
     private int randomInt(int inclusive, int exclusive) {
         if (rnd != null) return inclusive + rnd.nextInt(exclusive - inclusive);

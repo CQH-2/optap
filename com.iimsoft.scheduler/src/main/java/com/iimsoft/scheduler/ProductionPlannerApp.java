@@ -4,11 +4,13 @@ import com.iimsoft.scheduler.domain.*;
 import com.iimsoft.scheduler.ga.GeneticAlgorithmScheduler;
 import com.iimsoft.scheduler.util.HourSlotGenerator;
 import com.iimsoft.scheduler.util.WorkingHours;
-import org.optaplanner.core.api.score.ScoreManager;
-import org.optaplanner.core.api.score.ScoreManagerFactory;
-import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScore;
+
 import org.optaplanner.core.api.solver.Solver;
 import org.optaplanner.core.api.solver.SolverFactory;
+import org.optaplanner.core.config.solver.SolverConfig;
+import org.optaplanner.core.config.score.director.ScoreDirectorFactoryConfig;
+import org.optaplanner.core.impl.score.director.ScoreDirectorFactory;
+import org.optaplanner.core.impl.score.director.ScoreDirectorFactoryFactory;
 
 import java.time.LocalDate;
 import java.util.*;
@@ -29,9 +31,9 @@ public class ProductionPlannerApp {
         // 2) 工艺与物料支持关系
         Router rAsm = new Router(1L, "装配");
         Router rFab = new Router(2L, "加工");
-        rAsm.getSupportedItems().add(a);   // A 用装配
-        rFab.getSupportedItems().add(b);   // B 用加工
-        rFab.getSupportedItems().add(c);   // C 用加工
+        rAsm.getSupportedItems().add(a);
+        rFab.getSupportedItems().add(b);
+        rFab.getSupportedItems().add(c);
 
         // 3) 产线与速率（件/小时）
         Line l1 = new Line(1L, "L1");
@@ -46,7 +48,7 @@ public class ProductionPlannerApp {
         List<Router> routers = Arrays.asList(rAsm, rFab);
         List<Line> lines = Arrays.asList(l1, l2);
 
-        // 4) BOM：A = 2*B + 3*C（子件需比父件早1天到位）
+        // 4) BOM
         List<BomComponent> bom = Arrays.asList(
                 new BomComponent(1L, a, b, 2, 1),
                 new BomComponent(2L, a, c, 3, 1)
@@ -61,7 +63,7 @@ public class ProductionPlannerApp {
         List<Requirement> requirements = explodeDemandsToRequirements(demands, bom);
 
         // 7) “倒推固定2天”的小时槽位
-        WorkingHours workingHours = new WorkingHours(8, 17); // 工作时段 8:00-17:00
+        WorkingHours workingHours = new WorkingHours(8, 17);
         long baseId = 10_000L;
         List<LineHourSlot> hourSlots = HourSlotGenerator.buildBackwardSlotsForDays(
                 lines, requirements, workingHours, 2, baseId
@@ -86,16 +88,23 @@ public class ProductionPlannerApp {
         problem.setPlanList(plans);
         problem.setMaxQuantityPerHour(60);
 
-        // 10) 构建 ScoreManager（沿用 DRL 约束以评估 GA 个体）
-        SolverFactory<ProductionSchedule> solverFactory =
-                SolverFactory.createFromXmlResource("solverConfig.xml");
-        ScoreManager<ProductionSchedule, HardSoftScore> scoreManager =
-                ScoreManagerFactory.create(solverFactory);
+        // 10) 构建 ScoreDirectorFactory（从 solverConfig.xml 读取 DRL 配置）
+        SolverConfig solverConfig = SolverConfig.createFromXmlResource("solverConfig.xml");
+        ScoreDirectorFactoryConfig scoreDirConfig = solverConfig.getScoreDirectorFactoryConfig();
+        if (scoreDirConfig == null) {
+            scoreDirConfig = new ScoreDirectorFactoryConfig();
+            scoreDirConfig.setScoreDrlList(List.of("rules/productionConstraints.drl"));
+        }
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        ScoreDirectorFactory<ProductionSchedule> scoreDirectorFactory =
+                new ScoreDirectorFactoryFactory<ProductionSchedule>(cl, scoreDirConfig).buildScoreDirectorFactory();
 
         // 11) 运行遗传算法（默认），可通过系统属性切回原本解器：-Duse.optaplanner=true
         boolean useOptaPlannerSolver = Boolean.getBoolean("use.optaplanner");
         ProductionSchedule best;
         if (useOptaPlannerSolver) {
+            SolverFactory<ProductionSchedule> solverFactory =
+                    SolverFactory.createFromXmlResource("solverConfig.xml");
             Solver<ProductionSchedule> solver = solverFactory.buildSolver();
             best = solver.solve(problem);
         } else {
@@ -107,9 +116,9 @@ public class ProductionPlannerApp {
             ga.tournamentSize = 5;
             ga.eliteCount = 2;
             ga.parallelEvaluation = true;
-            ga.randomSeed = 0L; // 非0则可复现
+            ga.randomSeed = 0L;
 
-            GeneticAlgorithmScheduler scheduler = new GeneticAlgorithmScheduler(scoreManager, ga.randomSeed);
+            GeneticAlgorithmScheduler scheduler = new GeneticAlgorithmScheduler(scoreDirectorFactory, ga.randomSeed);
             long t0 = System.currentTimeMillis();
             best = scheduler.solve(problem, ga);
             long t1 = System.currentTimeMillis();
@@ -199,7 +208,6 @@ public class ProductionPlannerApp {
         return reqs;
     }
 
-    // ============ 展示辅助：构建“每个计划开始前”的子件库存快照 ============
     private static class ChildInvSnapshots {
         final Map<Long, Map<Item, Integer>> perPlanChildInv;
         final List<Item> childItemsInBom;
