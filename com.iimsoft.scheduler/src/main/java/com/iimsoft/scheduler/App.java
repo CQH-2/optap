@@ -168,12 +168,20 @@ public class App {
         Item A = new Item("A", "Assembly A");
         Item B = new Item("B", "Part B");
         Item C = new Item("C", "Part C");
-        d.items = List.of(A, B, C);
+        // 新增一个总成物料 X，以及其子件 D、E
+        Item X = new Item("X", "Assembly X");
+        Item D = new Item("D", "Part D");
+        Item E = new Item("E", "Part E");
+        d.items = List.of(A, B, C, X, D, E);
 
-        // BOM：A = 2*B + 1*C
+        // BOM：
+        // A = 2*B + 1*C
         BomArc arcAB = new BomArc(A, B, 2);
         BomArc arcAC = new BomArc(A, C, 1);
-        d.bomArcs = List.of(arcAB, arcAC);
+        // X = 1*D + 1*E （若用量不同，改这里的数量）
+        BomArc arcXD = new BomArc(X, D, 1);
+        BomArc arcXE = new BomArc(X, E, 1);
+        d.bomArcs = List.of(arcAB, arcAC, arcXD, arcXE);
 
         // 生产线
         ProductionLine L1 = new ProductionLine("L1");
@@ -185,11 +193,15 @@ public class App {
         Router rA2 = new Router("rA2", A, 8);
         Router rB1 = new Router("rB1", B, 18);
         Router rC1 = new Router("rC1", C, 14);
-        d.routers = List.of(rA1, rA2, rB1, rC1);
+        // 新增：X、D、E 的工艺
+        Router rX1 = new Router("rX1", X, 9);
+        Router rD1 = new Router("rD1", D, 16);
+        Router rE1 = new Router("rE1", E, 12);
+        d.routers = List.of(rA1, rA2, rB1, rC1, rX1, rD1, rE1);
 
-        // 产线支持的工艺
-        L1.setSupportedRouters(List.of(rA1, rB1));
-        L2.setSupportedRouters(List.of(rA2, rC1));
+        // 产线支持的工艺（可按需分配）
+        L1.setSupportedRouters(List.of(rA1, rB1, rD1, rX1));
+        L2.setSupportedRouters(List.of(rA2, rC1, rE1));
 
         // 时间槽：两天 8-19（原样）
         LocalDate day1 = LocalDate.now();
@@ -203,21 +215,31 @@ public class App {
         }
         d.timeSlots = slots;
 
-        // 初始库存（可按需调整）
+        // 初始库存（可按需调整；新增 X/D/E 的库存）
         d.inventories = List.of(
                 new ItemInventory(A, 0),
                 new ItemInventory(B, 50),
-                new ItemInventory(C, 20)
+                new ItemInventory(C, 20),
+                new ItemInventory(X, 0),
+                new ItemInventory(D, 30),
+                new ItemInventory(E, 15)
         );
 
-        // 需求：只对A设需求，子件不直接设需求
+        // 需求：A、X 都给一个需求例子
         int dueIndexDay1 = slots.stream()
                 .filter(s -> s.getDate().equals(day1))
                 .mapToInt(TimeSlot::getIndex)
                 .max()
                 .orElse(11);
+        int dueIndexDay2 = slots.stream()
+                .filter(s -> s.getDate().equals(day2))
+                .mapToInt(TimeSlot::getIndex)
+                .max()
+                .orElse(dueIndexDay1 + 12);
+
         DemandOrder demandA = new DemandOrder(A, 50, day1, dueIndexDay1);
-        d.demands = List.of(demandA);
+        DemandOrder demandX = new DemandOrder(X, 30, day2, dueIndexDay2);
+        d.demands = List.of(demandA, demandX);
 
         // 规划实体：每条产线 * 每个时间槽
         List<ProductionAssignment> assignments = new ArrayList<>();
