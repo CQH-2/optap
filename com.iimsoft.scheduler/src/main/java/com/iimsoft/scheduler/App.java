@@ -3,12 +3,12 @@ package com.iimsoft.scheduler;
 import com.iimsoft.scheduler.domain.*;
 import org.optaplanner.core.api.solver.SolverFactory;
 import org.optaplanner.core.api.solver.SolverManager;
-import org.optaplanner.core.api.solver.SolutionManager; // 新增
 
 import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class App {
 
@@ -34,14 +34,14 @@ public class App {
 
         ProductionSchedule solution = solverManager.solve(problemId, problem).getFinalBestSolution();
 
-        // 使用 SolutionManager 代替已废弃的 ScoreManager
-        var solutionManager = SolutionManager.create(solverFactory);
-        var explanation = solutionManager.explain(solution);
-        System.out.println(explanation.getSummary());
+        // 新增：打印约束解释 summary，快速看哪条约束在起作用
+        var scoreManager = org.optaplanner.core.api.score.ScoreManager.create(solverFactory);
+        System.out.println(scoreManager.explain(solution).getSummary());
 
         System.out.println("Score: " + solution.getScore());
+
         printSchedule(solution);
-        printComponentInventoryTimeline(solution);
+//        printComponentInventoryTimeline(solution);
     }
 
     private static void printSchedule(ProductionSchedule solution) {
@@ -76,7 +76,19 @@ public class App {
                     d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getDueTimeSlotIndex());
         }
 
-        System.out.println("\n==== 调度结果 ====");
+        // 全量物料集合（用于“全局库存/变动”展示）
+        List<Item> allItems = collectAllItems(solution);
+
+        // 计算“每个时间槽结束时”的全局库存快照
+        Map<Integer, Map<Item, Integer>> globalInvSnapshots = computeGlobalInventorySnapshots(solution, allItems);
+        // 计算“每个时间槽的全局库存变动”（相对于上一个时间槽；首槽相对于初始）
+        Map<Integer, Map<Item, Integer>> globalInvDeltas = computeGlobalInventoryDeltas(solution, allItems, globalInvSnapshots);
+
+        // 预备：父件->BOM子件列表，用于计算“本行影响”
+        Map<Item, List<BomArc>> parentToArcs = solution.getBomArcList().stream()
+                .collect(Collectors.groupingBy(BomArc::getParent));
+
+        System.out.println("\n==== 调度结果（本行影响 + 全局库存变动 + 全局库存） ====");
         var assignments = new ArrayList<>(solution.getAssignmentList());
         assignments.sort(Comparator
                 .comparing((ProductionAssignment a) -> a.getTimeSlot().getIndex())
@@ -87,7 +99,44 @@ public class App {
             String router = a.getRouter() == null ? "空闲" : a.getRouter().getCode();
             String item = a.getProducedItem() == null ? "-" : a.getProducedItem().getCode();
             int qty = a.getProducedQuantity();
-            System.out.printf("%s | 生产线：%s | 工艺：%-8s | 生产物料：%-4s 数量：%d%n", time, line, router, item, qty);
+
+            // 本行对库存的直接影响（仅由该 assignment 引起）
+            Map<Item, Integer> rowDelta = new LinkedHashMap<>();
+            if (a.getRouter() != null) {
+                Item produced = a.getProducedItem();
+                // 该物料入库
+                if (produced != null) {
+                    rowDelta.merge(produced, qty, Integer::sum);
+                }
+                // 若是父件，则消耗其子件
+                for (BomArc arc : parentToArcs.getOrDefault(produced, List.of())) {
+                    rowDelta.merge(arc.getChild(), -qty * arc.getQuantityPerParent(), Integer::sum);
+                }
+            }
+            String rowDeltaStr = rowDelta.entrySet().stream()
+                    .filter(e -> e.getValue() != 0)
+                    .map(e -> e.getKey().getCode() + (e.getValue() >= 0 ? ":+":"") + e.getValue())
+                    .collect(Collectors.joining(","));
+            if (rowDeltaStr.isEmpty()) rowDeltaStr = "-";
+
+            int idx = a.getTimeSlot().getIndex();
+
+            // 全局库存变动（本槽相对上一槽）
+            Map<Item, Integer> deltaAtSlot = globalInvDeltas.getOrDefault(idx, Map.of());
+            String slotDeltaStr = deltaAtSlot.entrySet().stream()
+                    .filter(e -> e.getValue() != 0)
+                    .map(e -> e.getKey().getCode() + (e.getValue() >= 0 ? ":+":"") + e.getValue())
+                    .collect(Collectors.joining(","));
+            if (slotDeltaStr.isEmpty()) slotDeltaStr = "-";
+
+            // 全局库存（该时间槽结束时）- 全部物料
+            Map<Item, Integer> invAtSlot = globalInvSnapshots.getOrDefault(idx, Map.of());
+            String invStr = allItems.stream()
+                    .map(it -> it.getCode() + "=" + invAtSlot.getOrDefault(it, 0))
+                    .collect(Collectors.joining(","));
+
+            System.out.printf("%s | 生产线：%s | 工艺：%-8s | 生产物料：%-4s 数量：%d | 本行影响[%s] | 全局库存Δ[%s] | 全局库存[%s]%n",
+                    time, line, router, item, qty, rowDeltaStr, slotDeltaStr, invStr);
         }
 
         // 汇总产量
@@ -96,11 +145,11 @@ public class App {
                 .collect(Collectors.groupingBy(ProductionAssignment::getProducedItem,
                         Collectors.summingInt(ProductionAssignment::getProducedQuantity)));
         System.out.println("\n==== 产量汇总 ====");
-        producedByItem.forEach((item, sum) ->
-                System.out.printf("物料%s 总产量：%d%n", item.getCode(), sum));
+        producedByItem.forEach((it, sum) ->
+                System.out.printf("物料%s 总产量：%d%n", it.getCode(), sum));
     }
 
-    // 打印“子件库存逐时演进”，让你看到在父件生产时子件是否够
+    // 打印“子件库存逐时演进”，让你看到在父件生产时子件是否够（保持原有输出）
     private static void printComponentInventoryTimeline(ProductionSchedule solution) {
         System.out.println("\n==== 子件库存逐时演进（CSV）====");
         // 只统计作为“子件”出现过的物料
@@ -155,6 +204,119 @@ public class App {
         }
     }
 
+    // 收集全量物料集合（库存/路由/BOM/需求中出现过的所有物料）
+    private static List<Item> collectAllItems(ProductionSchedule solution) {
+        LinkedHashSet<Item> set = new LinkedHashSet<>();
+        set.addAll(solution.getInventoryList().stream().map(ItemInventory::getItem).toList());
+        set.addAll(solution.getRouterList().stream().map(Router::getItem).toList());
+        set.addAll(solution.getBomArcList().stream()
+                .flatMap(arc -> Stream.of(arc.getParent(), arc.getChild()))
+                .toList());
+        set.addAll(solution.getDemandList().stream().map(DemandOrder::getItem).toList());
+        return new ArrayList<>(set);
+    }
+
+    // 计算“每个时间槽结束时”的全局库存快照（包含所有物料）
+    private static Map<Integer, Map<Item, Integer>> computeGlobalInventorySnapshots(ProductionSchedule solution, List<Item> allItems) {
+        // 初始库存（所有物料，默认0）
+        Map<Item, Integer> currentOnHand = new HashMap<>();
+        for (Item it : allItems) {
+            int initial = solution.getInventoryList().stream()
+                    .filter(inv -> inv.getItem().equals(it))
+                    .mapToInt(ItemInventory::getInitialOnHand)
+                    .findFirst()
+                    .orElse(0);
+            currentOnHand.put(it, initial);
+        }
+
+        // 时间槽有序
+        List<TimeSlot> orderedSlots = new ArrayList<>(solution.getTimeSlotList());
+        orderedSlots.sort(Comparator.comparingInt(TimeSlot::getIndex));
+
+        // 每槽每物料的产量
+        Map<Integer, Map<Item, Integer>> producedAtSlot = solution.getAssignmentList().stream()
+                .filter(a -> a.getRouter() != null)
+                .collect(Collectors.groupingBy(a -> a.getTimeSlot().getIndex(),
+                        Collectors.groupingBy(ProductionAssignment::getProducedItem,
+                                Collectors.summingInt(ProductionAssignment::getProducedQuantity))));
+
+        // BOM 列表
+        List<BomArc> arcs = solution.getBomArcList();
+
+        Map<Integer, Map<Item, Integer>> snapshot = new LinkedHashMap<>();
+        for (TimeSlot ts : orderedSlots) {
+            int idx = ts.getIndex();
+
+            // 本槽产出：所有物料直接入库
+            Map<Item, Integer> producedThisSlot = producedAtSlot.getOrDefault(idx, Map.of());
+            for (Map.Entry<Item, Integer> e : producedThisSlot.entrySet()) {
+                if (e.getValue() != 0) {
+                    currentOnHand.merge(e.getKey(), e.getValue(), Integer::sum);
+                }
+            }
+
+            // 子件消耗：由父件产量驱动（同槽内先入库再消耗）
+            Map<Item, Integer> consumedChild = new HashMap<>();
+            for (BomArc arc : arcs) {
+                int parentQty = producedThisSlot.getOrDefault(arc.getParent(), 0);
+                if (parentQty != 0) {
+                    consumedChild.merge(arc.getChild(), parentQty * arc.getQuantityPerParent(), Integer::sum);
+                }
+            }
+            for (Map.Entry<Item, Integer> e : consumedChild.entrySet()) {
+                currentOnHand.merge(e.getKey(), -e.getValue(), Integer::sum);
+            }
+
+            // 记录该槽结束时的全局库存
+            Map<Item, Integer> endInv = new LinkedHashMap<>();
+            for (Item it : allItems) {
+                endInv.put(it, currentOnHand.getOrDefault(it, 0));
+            }
+            snapshot.put(idx, endInv);
+        }
+        return snapshot;
+    }
+
+    // 计算“每个时间槽的全局库存变动”（相对上一个时间槽；首槽相对于初始）
+    private static Map<Integer, Map<Item, Integer>> computeGlobalInventoryDeltas(ProductionSchedule solution,
+                                                                                 List<Item> allItems,
+                                                                                 Map<Integer, Map<Item, Integer>> snapshots) {
+        // 初始库存 map（用于首槽的对比）
+        Map<Item, Integer> prev = new HashMap<>();
+        for (Item it : allItems) {
+            int initial = solution.getInventoryList().stream()
+                    .filter(inv -> inv.getItem().equals(it))
+                    .mapToInt(ItemInventory::getInitialOnHand)
+                    .findFirst()
+                    .orElse(0);
+            prev.put(it, initial);
+        }
+
+        List<TimeSlot> orderedSlots = new ArrayList<>(solution.getTimeSlotList());
+        orderedSlots.sort(Comparator.comparingInt(TimeSlot::getIndex));
+
+        Map<Integer, Map<Item, Integer>> deltas = new LinkedHashMap<>();
+        for (TimeSlot ts : orderedSlots) {
+            int idx = ts.getIndex();
+            Map<Item, Integer> snap = snapshots.getOrDefault(idx, Map.of());
+
+            Map<Item, Integer> delta = new LinkedHashMap<>();
+            for (Item it : allItems) {
+                int d = snap.getOrDefault(it, 0) - prev.getOrDefault(it, 0);
+                delta.put(it, d);
+            }
+            deltas.put(idx, delta);
+
+            // 更新 prev（用一份副本，防止后续修改引用）
+            Map<Item, Integer> nextPrev = new HashMap<>();
+            for (Item it : allItems) {
+                nextPrev.put(it, snap.getOrDefault(it, 0));
+            }
+            prev = nextPrev;
+        }
+        return deltas;
+    }
+
     // ====== 示例数据生成 ======
     static class ExampleData {
         List<Item> items;
@@ -184,7 +346,7 @@ public class App {
         // A = 2*B + 1*C
         BomArc arcAB = new BomArc(A, B, 2);
         BomArc arcAC = new BomArc(A, C, 1);
-        // X = 1*D + 1*E （若用量不同，改这里的数量）
+        // X = 1*D + 1*E
         BomArc arcXD = new BomArc(X, D, 1);
         BomArc arcXE = new BomArc(X, E, 1);
         d.bomArcs = List.of(arcAB, arcAC, arcXD, arcXE);
@@ -212,6 +374,7 @@ public class App {
         // 时间槽：两天 8-19（原样）
         LocalDate day1 = LocalDate.now();
         LocalDate day2 = day1.plusDays(1);
+        LocalDate day3 = day2.plusDays(1);
         List<TimeSlot> slots = new ArrayList<>();
         int index = 0;
         for (LocalDate d0 : List.of(day1, day2)) {
