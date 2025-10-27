@@ -19,7 +19,8 @@ public class ProductionConstraintProvider implements ConstraintProvider {
                 penalizeUnmetDemand(factory),
                 // 软约束（正向引导与惩罚）
                 rewardDemandSatisfactionCapped(factory), // 主目标：按需产出（封顶净需求）
-                penalizeOverProduction(factory),         // 软：超产惩罚
+                rewardDemandComplete(factory),           // 奖励需求被完全满足（不超产3%）
+                penalizeOverProduction(factory),         // 软：超产惩罚（>=3% 开始处罚）
                 rewardJustInTimeAffinity(factory),       // 临近交期的产出更有奖励（但始终为正）
                 rewardBatchingSameRouter(factory),       // 相邻时段保持同工艺（减少切换）
                 discourageNonDemandedProduction(factory), // 无任何需求关联的产出给一点点负引导
@@ -66,6 +67,7 @@ public class ProductionConstraintProvider implements ConstraintProvider {
     }
 
     // 主目标：按需产出奖励（到交期前，封顶“净需求”）
+// 2. 按比例奖励达成度
     private Constraint rewardDemandSatisfactionCapped(ConstraintFactory factory) {
         return factory.forEach(DemandOrder.class)
                 .join(ProductionAssignment.class,
@@ -76,10 +78,36 @@ public class ProductionConstraintProvider implements ConstraintProvider {
                 .groupBy(
                         (d, a) -> d,
                         ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
-                .reward(HardSoftScore.ofSoft(10),(d, producedSum) -> Math.min(producedSum, d.getQuantity()))
-                .asConstraint("按需产出奖励（到期前，封顶净需求）");
+                .reward(HardSoftScore.ofSoft(10), (d, producedSum) -> {
+                    int demand = d.getQuantity();
+                    if (demand <= 0) return 0;
+                    int satisfied = Math.min(producedSum, demand);
+                    return (satisfied * 1000) / demand;
+                })
+                .asConstraint("按比例奖励需求完成度");
     }
 
+    // 1. 完全满足且不超产3%，大额奖励
+    private Constraint rewardDemandComplete(ConstraintFactory factory) {
+        return factory.forEach(DemandOrder.class)
+                .join(ProductionAssignment.class,
+                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
+                        Joiners.filtering((d, a) ->
+                                a.getProducedItem() != null &&
+                                        a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
+                .groupBy(
+                        (d, a) -> d,
+                        ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
+                .filter((d, producedSum) -> {
+                    int demand = d.getQuantity();
+                    int maxAcceptable = (int) Math.ceil(demand * 1.03);
+                    return producedSum >= demand && producedSum <= maxAcceptable;
+                })
+                .reward(HardSoftScore.ofSoft(1000), (d, producedSum) -> 1)
+                .asConstraint("完全满足需求且不超产3%奖励");
+    }
+
+    // 软约束：超产惩罚（达到或超过3%即开始处罚；在3%以内不罚）
     private Constraint penalizeOverProduction(ConstraintFactory factory) {
         return factory.forEach(DemandOrder.class)
                 .join(ProductionAssignment.class,
@@ -87,9 +115,18 @@ public class ProductionConstraintProvider implements ConstraintProvider {
                 .groupBy(
                         (d, a) -> d,
                         ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
-                .penalize(HardSoftScore.ofSoft(100), (d, producedSum) -> Math.max(0, producedSum - d.getQuantity()))
-                .asConstraint("超产惩罚");
+                .penalize(HardSoftScore.ofSoft(500), (d, producedSum) -> {
+                    int demand = d.getQuantity();
+                    int over = producedSum - demand;
+                    // 容忍超产阈值（3%，向上取整，达到3%才开始罚）
+                    int tolerated = (int) Math.ceil(demand * 0.03) - 1;
+                    tolerated = Math.max(0, tolerated);
+                    int penalizedOver = Math.max(0, over - tolerated);
+                    return penalizedOver;
+                })
+                .asConstraint("超产惩罚（>=3%开始处罚）");
     }
+
     // JIT亲和奖励（贴近交期分数，辅助目标）
     private Constraint rewardJustInTimeAffinity(ConstraintFactory factory) {
         final int maxBonus = 4;
