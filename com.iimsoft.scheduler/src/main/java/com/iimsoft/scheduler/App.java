@@ -402,12 +402,12 @@ public class App {
                 .max()
                 .orElse(dueIndexDay1 + 12);
 
-        DemandOrder demandA = new DemandOrder(A, 500, day1, dueIndexDay1);
-        DemandOrder demandX = new DemandOrder(X, 300, day2, dueIndexDay2);
+        DemandOrder demandA = new DemandOrder(A, 100, day1, dueIndexDay1);
+
 
         // =========== 预分解子料需求 ===========
 
-        List<DemandOrder> origDemands = List.of(demandA, demandX);
+        List<DemandOrder> origDemands = List.of(demandA);
         Map<Item, Integer> itemToTotalDemand = new LinkedHashMap<>();
         Map<Item, LocalDate> itemToDueDate = new HashMap<>();
         Map<Item, Integer> itemToDueSlotIndex = new HashMap<>();

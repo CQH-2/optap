@@ -8,7 +8,7 @@
     </scoreDirectorFactory>
 
     <termination>
-        <secondsSpentLimit>5</secondsSpentLimit>
+        <secondsSpentLimit>20</secondsSpentLimit>
     </termination>
 
     <environmentMode>REPRODUCIBLE</environmentMode>
