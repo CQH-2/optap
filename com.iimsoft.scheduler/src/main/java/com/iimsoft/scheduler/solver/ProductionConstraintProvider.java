@@ -16,13 +16,14 @@ public class ProductionConstraintProvider implements ConstraintProvider {
                 // 硬约束
                 routerMustBeSupportedByLine(factory),
                 inventoryBalanceNonNegative(factory),
-
+                penalizeUnmetDemand(factory),
                 // 软约束（正向引导与惩罚）
                 rewardDemandSatisfactionCapped(factory), // 主目标：按需产出（封顶净需求）
                 penalizeOverProduction(factory),         // 软：超产惩罚
                 rewardJustInTimeAffinity(factory),       // 临近交期的产出更有奖励（但始终为正）
                 rewardBatchingSameRouter(factory),       // 相邻时段保持同工艺（减少切换）
-                discourageNonDemandedProduction(factory) // 无任何需求关联的产出给一点点负引导
+                discourageNonDemandedProduction(factory), // 无任何需求关联的产出给一点点负引导
+                penalizeEarlyProduction(factory)
         };
     }
 
@@ -79,21 +80,16 @@ public class ProductionConstraintProvider implements ConstraintProvider {
                 .asConstraint("按需产出奖励（到期前，封顶净需求）");
     }
 
-    // 软约束：超产惩罚（对超出需求的产量给予负分，权重高于主目标）
     private Constraint penalizeOverProduction(ConstraintFactory factory) {
         return factory.forEach(DemandOrder.class)
                 .join(ProductionAssignment.class,
-                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
-                        Joiners.filtering((d, a) ->
-                                a.getProducedItem() != null &&
-                                        a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
+                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem))
                 .groupBy(
                         (d, a) -> d,
                         ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
                 .penalize(HardSoftScore.ofSoft(100), (d, producedSum) -> Math.max(0, producedSum - d.getQuantity()))
                 .asConstraint("超产惩罚");
     }
-
     // JIT亲和奖励（贴近交期分数，辅助目标）
     private Constraint rewardJustInTimeAffinity(ConstraintFactory factory) {
         final int maxBonus = 4;
@@ -132,5 +128,28 @@ public class ProductionConstraintProvider implements ConstraintProvider {
                 .ifNotExists(DemandOrder.class, Joiners.equal(ProductionAssignment::getProducedItem, DemandOrder::getItem))
                 .penalize(HardSoftScore.ofSoft(5), ProductionAssignment::getProducedQuantity)
                 .asConstraint("无需求的生产不鼓励");
+    }
+
+    private Constraint penalizeEarlyProduction(ConstraintFactory factory) {
+        return factory.forEach(DemandOrder.class)
+                .join(ProductionAssignment.class,
+                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
+                        Joiners.filtering((d, a) -> a.getTimeSlot().getIndex() < d.getDueTimeSlotIndex()))
+                .penalize(HardSoftScore.ofSoft(2), (d, a) -> d.getDueTimeSlotIndex() - a.getTimeSlot().getIndex())
+                .asConstraint("提前生产惩罚");
+    }
+
+    private Constraint penalizeUnmetDemand(ConstraintFactory factory) {
+        return factory.forEach(DemandOrder.class)
+                .join(ProductionAssignment.class,
+                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
+                        Joiners.filtering((d, a) -> a.getProducedItem() != null &&
+                                a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
+                .groupBy(
+                        (d, a) -> d,
+                        ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
+                // 没产够的部分，每件扣分
+                .penalize(HardSoftScore.ofSoft(200), (d, producedSum) -> Math.max(0, d.getQuantity() - producedSum))
+                .asConstraint("未满足需求惩罚");
     }
 }
