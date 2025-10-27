@@ -88,61 +88,73 @@ public class App {
         Map<Item, List<BomArc>> parentToArcs = solution.getBomArcList().stream()
                 .collect(Collectors.groupingBy(BomArc::getParent));
 
-        System.out.println("\n==== 调度结果（本行影响 + 全局库存变动 + 全局库存） ====");
-        var assignments = new ArrayList<>(solution.getAssignmentList());
-        assignments.sort(Comparator.comparing((ProductionAssignment a) -> a.getTimeSlot().getIndex()).thenComparing(a -> a.getLine().getCode()));
-        for (ProductionAssignment a : assignments) {
-            String line = a.getLine().getCode();
-            String time = a.getTimeSlot().toString();
-            String router = a.getRouter() == null ? "空闲" : a.getRouter().getCode();
-            String item = a.getProducedItem() == null ? "-" : a.getProducedItem().getCode();
-            int qty = a.getProducedQuantity();
+        // -------- 新增：按生产线分组输出 --------
+        System.out.println("\n==== 调度结果（按生产线分组，明细） ====");
+        // 按产线分组，组内按时间排序
+        Map<ProductionLine, List<ProductionAssignment>> assignmentsByLine = solution.getAssignmentList().stream()
+                .collect(Collectors.groupingBy(ProductionAssignment::getLine));
+        // 保持产线顺序
+        for (ProductionLine line : solution.getLineList()) {
+            System.out.printf("---- 生产线：%s ----%n", line.getCode());
+            List<ProductionAssignment> assignments = assignmentsByLine.getOrDefault(line, List.of());
+            // 组内按时间顺序
+            assignments = assignments.stream()
+                    .sorted(Comparator.comparing(a -> a.getTimeSlot().getIndex()))
+                    .toList();
 
-            // 本行对库存的直接影响（仅由该 assignment 引起）
-            Map<Item, Integer> rowDelta = new LinkedHashMap<>();
-            if (a.getRouter() != null) {
-                Item produced = a.getProducedItem();
-                // 该物料入库
-                if (produced != null) {
-                    rowDelta.merge(produced, qty, Integer::sum);
+            for (ProductionAssignment a : assignments) {
+                String time = a.getTimeSlot().toString();
+                String router = a.getRouter() == null ? "空闲" : a.getRouter().getCode();
+                String item = a.getProducedItem() == null ? "-" : a.getProducedItem().getCode();
+                int qty = a.getProducedQuantity();
+
+                // 本行对库存的直接影响（仅由该 assignment 引起）
+                Map<Item, Integer> rowDelta = new LinkedHashMap<>();
+                if (a.getRouter() != null) {
+                    Item produced = a.getProducedItem();
+                    // 该物料入库
+                    if (produced != null) {
+                        rowDelta.merge(produced, qty, Integer::sum);
+                    }
+                    // 若是父件，则消耗其子件
+                    for (BomArc arc : parentToArcs.getOrDefault(produced, List.of())) {
+                        rowDelta.merge(arc.getChild(), -qty * arc.getQuantityPerParent(), Integer::sum);
+                    }
                 }
-                // 若是父件，则消耗其子件
-                for (BomArc arc : parentToArcs.getOrDefault(produced, List.of())) {
-                    rowDelta.merge(arc.getChild(), -qty * arc.getQuantityPerParent(), Integer::sum);
-                }
+                String rowDeltaStr = rowDelta.entrySet().stream()
+                        .filter(e -> e.getValue() != 0)
+                        .map(e -> e.getKey().getCode() + (e.getValue() >= 0 ? ":+":"") + e.getValue())
+                        .collect(Collectors.joining(","));
+                if (rowDeltaStr.isEmpty()) rowDeltaStr = "-";
+
+                int idx = a.getTimeSlot().getIndex();
+
+                // 全局库存变动（本槽相对上一槽）
+                Map<Item, Integer> deltaAtSlot = globalInvDeltas.getOrDefault(idx, Map.of());
+                String slotDeltaStr = deltaAtSlot.entrySet().stream()
+                        .filter(e -> e.getValue() != 0)
+                        .map(e -> e.getKey().getCode() + (e.getValue() >= 0 ? ":+":"") + e.getValue())
+                        .collect(Collectors.joining(","));
+                if (slotDeltaStr.isEmpty()) slotDeltaStr = "-";
+
+                // 全局库存（该时间槽结束时）- 全部物料
+                Map<Item, Integer> invAtSlot = globalInvSnapshots.getOrDefault(idx, Map.of());
+                String invStr = allItems.stream()
+                        .map(it -> it.getCode() + "=" + invAtSlot.getOrDefault(it, 0))
+                        .collect(Collectors.joining(","));
+
+                System.out.printf("%s | 工艺：%-8s | 生产物料：%-4s 数量：%d | 本行影响[%s] | 全局库存Δ[%s] | 全局库存[%s]%n",
+                        time, router, item, qty, rowDeltaStr, slotDeltaStr, invStr);
             }
-            String rowDeltaStr = rowDelta.entrySet().stream()
-                    .filter(e -> e.getValue() != 0)
-                    .map(e -> e.getKey().getCode() + (e.getValue() >= 0 ? ":+":"") + e.getValue())
-                    .collect(Collectors.joining(","));
-            if (rowDeltaStr.isEmpty()) rowDeltaStr = "-";
-
-            int idx = a.getTimeSlot().getIndex();
-
-            // 全局库存变动（本槽相对上一槽）
-            Map<Item, Integer> deltaAtSlot = globalInvDeltas.getOrDefault(idx, Map.of());
-            String slotDeltaStr = deltaAtSlot.entrySet().stream()
-                    .filter(e -> e.getValue() != 0)
-                    .map(e -> e.getKey().getCode() + (e.getValue() >= 0 ? ":+":"") + e.getValue())
-                    .collect(Collectors.joining(","));
-            if (slotDeltaStr.isEmpty()) slotDeltaStr = "-";
-
-            // 全局库存（该时间槽结束时）- 全部物料
-            Map<Item, Integer> invAtSlot = globalInvSnapshots.getOrDefault(idx, Map.of());
-            String invStr = allItems.stream()
-                    .map(it -> it.getCode() + "=" + invAtSlot.getOrDefault(it, 0))
-                    .collect(Collectors.joining(","));
-
-            System.out.printf("%s | 生产线：%s | 工艺：%-8s | 生产物料：%-4s 数量：%d | 本行影响[%s] | 全局库存Δ[%s] | 全局库存[%s]%n",
-                    time, line, router, item, qty, rowDeltaStr, slotDeltaStr, invStr);
+            System.out.println();
         }
 
         // 汇总产量
-        Map<Item, Integer> producedByItem = assignments.stream()
+        Map<Item, Integer> producedByItem = solution.getAssignmentList().stream()
                 .filter(a -> a.getRouter() != null)
                 .collect(Collectors.groupingBy(ProductionAssignment::getProducedItem,
                         Collectors.summingInt(ProductionAssignment::getProducedQuantity)));
-        System.out.println("\n==== 产量汇总 ====");
+        System.out.println("==== 产量汇总 ====");
         producedByItem.forEach((it, sum) ->
                 System.out.printf("物料%s 总产量：%d%n", it.getCode(), sum));
     }
@@ -366,7 +378,7 @@ public class App {
 
         // 产线支持的工艺（可按需分配）
         L1.setSupportedRouters(List.of(rA1, rB1, rD1, rX1));
-        L2.setSupportedRouters(List.of(rA2, rC1, rE1));
+        L2.setSupportedRouters(List.of(rC1, rE1));
 
         // 时间槽：两天 8-19（原样）
         LocalDate day1 = LocalDate.now();
