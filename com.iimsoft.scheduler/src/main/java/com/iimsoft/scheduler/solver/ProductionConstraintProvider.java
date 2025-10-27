@@ -8,43 +8,71 @@ import org.optaplanner.core.api.score.stream.ConstraintFactory;
 import org.optaplanner.core.api.score.stream.ConstraintProvider;
 import org.optaplanner.core.api.score.stream.Joiners;
 
+/**
+ * 约束设计（中文注释）：
+ * - 硬约束：确保解可行
+ *   1) 工艺必须被产线支持
+ *   2) 子件齐套性（库存余额不能为负）
+ *
+ * - 软约束：优化目标（“奖+罚”并存）
+ *   1) 按桶（同一物料分多日交付）按比例奖励：基础分1000，缺口越少加分越多；超产不加额外分（封顶）
+ *   2) 完全满足且不超产3%（每个交付桶）给予大额奖励
+ *   3) 超产达到或超过3%（按桶净额）开始处罚（在3%以内不罚）
+ *   4) 生产线相邻时段切换工艺惩罚（防止频繁换工艺）
+ *
+ * 说明：
+ * - “按桶净额”逻辑：对每条 Demand（同一物料不同到期日的一条需求称为一个“交付桶”），
+ *   只统计“到该桶到期为止的总产量 - 之前桶的总需求量”的净可用产量，再与本桶需求比较做奖罚。
+ *   这样避免早期产量被后续日期的需求重复计入奖励或惩罚。
+ */
 public class ProductionConstraintProvider implements ConstraintProvider {
 
     @Override
     public Constraint[] defineConstraints(ConstraintFactory factory) {
         return new Constraint[] {
-                // 硬约束
+                // 硬约束（必须满足）
                 routerMustBeSupportedByLine(factory),
                 inventoryBalanceNonNegative(factory),
-                penalizeUnmetDemand(factory),
-                // 软约束（正向引导与惩罚）
-                rewardDemandSatisfactionCapped(factory), // 主目标：按需产出（封顶净需求）
-                rewardDemandComplete(factory),           // 奖励需求被完全满足（不超产3%）
-                penalizeOverProduction(factory),         // 软：超产惩罚（>=3% 开始处罚）
-                rewardJustInTimeAffinity(factory),       // 临近交期的产出更有奖励（但始终为正）
-                rewardBatchingSameRouter(factory),       // 相邻时段保持同工艺（减少切换）
-                discourageNonDemandedProduction(factory), // 无任何需求关联的产出给一点点负引导
-                penalizeEarlyProduction(factory)
+
+                // 软约束（按桶净额：奖励达成度）
+                rewardDemandSatisfactionFirstBucket(factory),
+                rewardDemandSatisfactionLaterBuckets(factory),
+
+                // 软约束（完全满足且不超产3%：大额奖励）
+                rewardDemandCompleteFirstBucket(factory),
+                rewardDemandCompleteLaterBuckets(factory),
+
+                // 软约束（超产达到或超过3%开始罚：按桶净额）
+                penalizeOverProductionFirstBucket(factory),
+                penalizeOverProductionLaterBuckets(factory),
+
+                // 软约束（相邻时段切换工艺惩罚）
+                penalizeRouterChange(factory)
         };
     }
 
-    // 硬约束：产线必须支持所选工艺
+    // =========================
+    // 硬约束（必须）
+    // =========================
+
+    // 硬约束：产线必须支持所选工艺（不支持 => 大罚）
     private Constraint routerMustBeSupportedByLine(ConstraintFactory factory) {
         return factory.forEach(ProductionAssignment.class)
                 .filter(a -> a.getRouter() != null && !a.getLine().supports(a.getRouter()))
                 .penalize(HardSoftScore.ofHard(1000))
-                .asConstraint("Router must be supported by line");
+                .asConstraint("硬-工艺必须被产线支持");
     }
 
-    // 硬约束：子件库存余额不能为负（含初始库存）
+    // 硬约束：子件库存余额不能为负（考虑初始库存；累计到当前时段）
     private Constraint inventoryBalanceNonNegative(ConstraintFactory factory) {
         return factory.forEach(TimeSlot.class)
                 .join(BomArc.class)
                 .join(ProductionAssignment.class,
                         Joiners.filtering((t, arc, a) ->
-                                a.getProducedItem() != null &&
-                                        a.getTimeSlot().getIndex() <= t.getIndex() &&
-                                        (arc.getChild().equals(a.getProducedItem()) || arc.getParent().equals(a.getProducedItem()))
+                                a.getProducedItem() != null
+                                        && a.getTimeSlot().getIndex() <= t.getIndex()
+                                        && (arc.getChild().equals(a.getProducedItem())
+                                        || arc.getParent().equals(a.getProducedItem()))
                         ))
                 .groupBy(
                         (t, arc, a) -> t,
@@ -57,136 +85,202 @@ public class ProductionConstraintProvider implements ConstraintProvider {
                 .map(InventoryBalanceTuple::new)
                 .join(ItemInventory.class, Joiners.equal(tuple -> tuple.getArc().getChild(), ItemInventory::getItem))
                 .filter((tuple, inv) ->
-                        inv.getInitialOnHand() + tuple.getChildSum() <
-                                tuple.getParentSum() * tuple.getArc().getQuantityPerParent())
+                        inv.getInitialOnHand() + tuple.getChildSum()
+                                < tuple.getParentSum() * tuple.getArc().getQuantityPerParent())
                 .penalize(HardSoftScore.ofHard(1000),
                         (tuple, inv) ->
                                 tuple.getParentSum() * tuple.getArc().getQuantityPerParent()
                                         - (inv.getInitialOnHand() + tuple.getChildSum()))
-                .asConstraint("子件库存余额不能为负（含初始库存）");
+                .asConstraint("硬-子件库存余额不能为负（含初始库存）");
     }
 
-    // 主目标：按需产出奖励（到交期前，封顶“净需求”）
-// 2. 按比例奖励达成度
-    private Constraint rewardDemandSatisfactionCapped(ConstraintFactory factory) {
+    // =========================
+    // 软约束（按桶净额：奖励达成度，基础分1000）
+    // =========================
+
+    // 首桶：本物料没有更早到期的桶 => 净可用=到期前总产量
+    private Constraint rewardDemandSatisfactionFirstBucket(ConstraintFactory factory) {
         return factory.forEach(DemandOrder.class)
                 .join(ProductionAssignment.class,
                         Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
                         Joiners.filtering((d, a) ->
-                                a.getProducedItem() != null &&
-                                        a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
+                                a.getProducedItem() != null
+                                        && a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
                 .groupBy(
                         (d, a) -> d,
                         ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
-                .reward(HardSoftScore.ofSoft(10), (d, producedSum) -> {
+                .ifNotExists(DemandOrder.class,
+                        Joiners.equal((d, producedSum) -> d.getItem(), DemandOrder::getItem),
+                        Joiners.lessThan((d, producedSum) -> d.getDueTimeSlotIndex(), DemandOrder::getDueTimeSlotIndex))
+                // 基础分=1000，按比例奖励（封顶不超奖）；权重=1 => 最大加1000分
+                .reward(HardSoftScore.ofSoft(1), (d, producedSum) -> {
                     int demand = d.getQuantity();
                     if (demand <= 0) return 0;
-                    int satisfied = Math.min(producedSum, demand);
+                    int available = Math.max(0, producedSum);
+                    int satisfied = Math.min(available, demand);
                     return (satisfied * 1000) / demand;
                 })
-                .asConstraint("按比例奖励需求完成度");
+                .asConstraint("软-按桶比例奖励-首桶（基础分1000）");
     }
 
-    // 1. 完全满足且不超产3%，大额奖励
-    private Constraint rewardDemandComplete(ConstraintFactory factory) {
+    // 后续桶：有更早到期的桶 => 净可用=到期前总产量-之前桶需求和
+    private Constraint rewardDemandSatisfactionLaterBuckets(ConstraintFactory factory) {
         return factory.forEach(DemandOrder.class)
                 .join(ProductionAssignment.class,
                         Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
                         Joiners.filtering((d, a) ->
-                                a.getProducedItem() != null &&
-                                        a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
+                                a.getProducedItem() != null
+                                        && a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
                 .groupBy(
                         (d, a) -> d,
                         ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
+                .join(DemandOrder.class,
+                        Joiners.equal((d, producedSum) -> d.getItem(), DemandOrder::getItem),
+                        Joiners.lessThan((d, producedSum) -> d.getDueTimeSlotIndex(), DemandOrder::getDueTimeSlotIndex))
+                .groupBy(
+                        (d, producedSum, prev) -> d,
+                        (d, producedSum, prev) -> producedSum,
+                        ConstraintCollectors.sum((d, producedSum, prev) -> prev.getQuantity()))
+                .reward(HardSoftScore.ofSoft(1), (d, producedSum, prevSum) -> {
+                    int demand = d.getQuantity();
+                    if (demand <= 0) return 0;
+                    int available = Math.max(0, producedSum - prevSum);
+                    int satisfied = Math.min(available, demand);
+                    return (satisfied * 1000) / demand;
+                })
+                .asConstraint("软-按桶比例奖励-后续桶（基础分1000）");
+    }
+
+    // =========================
+    // 软约束（完全满足且不超产3%：大额奖励）
+    // =========================
+
+    // 首桶：available ∈ [demand, ceil(demand*1.03)] => 额外大额奖励
+    private Constraint rewardDemandCompleteFirstBucket(ConstraintFactory factory) {
+        return factory.forEach(DemandOrder.class)
+                .join(ProductionAssignment.class,
+                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
+                        Joiners.filtering((d, a) ->
+                                a.getProducedItem() != null
+                                        && a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
+                .groupBy(
+                        (d, a) -> d,
+                        ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
+                .ifNotExists(DemandOrder.class,
+                        Joiners.equal((d, producedSum) -> d.getItem(), DemandOrder::getItem),
+                        Joiners.lessThan((d, producedSum) -> d.getDueTimeSlotIndex(), DemandOrder::getDueTimeSlotIndex))
                 .filter((d, producedSum) -> {
                     int demand = d.getQuantity();
+                    int available = Math.max(0, producedSum);
                     int maxAcceptable = (int) Math.ceil(demand * 1.03);
-                    return producedSum >= demand && producedSum <= maxAcceptable;
+                    return available >= demand && available <= maxAcceptable;
                 })
                 .reward(HardSoftScore.ofSoft(1000), (d, producedSum) -> 1)
-                .asConstraint("完全满足需求且不超产3%奖励");
+                .asConstraint("软-按桶完全满足奖励-首桶（不超产3%）");
     }
 
-    // 软约束：超产惩罚（达到或超过3%即开始处罚；在3%以内不罚）
-    private Constraint penalizeOverProduction(ConstraintFactory factory) {
-        return factory.forEach(DemandOrder.class)
-                .join(ProductionAssignment.class,
-                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem))
-                .groupBy(
-                        (d, a) -> d,
-                        ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
-                .penalize(HardSoftScore.ofSoft(500), (d, producedSum) -> {
-                    int demand = d.getQuantity();
-                    int over = producedSum - demand;
-                    // 容忍超产阈值（3%，向上取整，达到3%才开始罚）
-                    int tolerated = (int) Math.ceil(demand * 0.03) - 1;
-                    tolerated = Math.max(0, tolerated);
-                    int penalizedOver = Math.max(0, over - tolerated);
-                    return penalizedOver;
-                })
-                .asConstraint("超产惩罚（>=3%开始处罚）");
-    }
-
-    // JIT亲和奖励（贴近交期分数，辅助目标）
-    private Constraint rewardJustInTimeAffinity(ConstraintFactory factory) {
-        final int maxBonus = 4;
+    // 后续桶：available ∈ [demand, ceil(demand*1.03)]（使用净可用）
+    private Constraint rewardDemandCompleteLaterBuckets(ConstraintFactory factory) {
         return factory.forEach(DemandOrder.class)
                 .join(ProductionAssignment.class,
                         Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
                         Joiners.filtering((d, a) ->
-                                a.getRouter() != null &&
-                                        a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
-                .reward(HardSoftScore.ofSoft(2), (d, a) -> {
-                    int slack = d.getDueTimeSlotIndex() - a.getTimeSlot().getIndex();
-                    int proximity = Math.max(1, maxBonus - slack);
-                    return a.getProducedQuantity() * proximity;
+                                a.getProducedItem() != null
+                                        && a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
+                .groupBy(
+                        (d, a) -> d,
+                        ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
+                .join(DemandOrder.class,
+                        Joiners.equal((d, producedSum) -> d.getItem(), DemandOrder::getItem),
+                        Joiners.lessThan((d, producedSum) -> d.getDueTimeSlotIndex(), DemandOrder::getDueTimeSlotIndex))
+                .groupBy(
+                        (d, producedSum, prev) -> d,
+                        (d, producedSum, prev) -> producedSum,
+                        ConstraintCollectors.sum((d, producedSum, prev) -> prev.getQuantity()))
+                .filter((d, producedSum, prevSum) -> {
+                    int demand = d.getQuantity();
+                    int available = Math.max(0, producedSum - prevSum);
+                    int maxAcceptable = (int) Math.ceil(demand * 1.03);
+                    return available >= demand && available <= maxAcceptable;
                 })
-                .asConstraint("近交期优先（JIT亲和）");
+                .reward(HardSoftScore.ofSoft(1000), (d, producedSum, prevSum) -> 1)
+                .asConstraint("软-按桶完全满足奖励-后续桶（不超产3%）");
     }
 
-    // 批量同工艺奖励（细化排产，低权重）
-    private Constraint rewardBatchingSameRouter(ConstraintFactory factory) {
+    // =========================
+    // 软约束（超产达到或超过3%开始处罚：按桶净额）
+    // =========================
+
+    // 首桶：available 超出 demand 的容忍阈值（>=3%）开始罚
+    private Constraint penalizeOverProductionFirstBucket(ConstraintFactory factory) {
+        return factory.forEach(DemandOrder.class)
+                .join(ProductionAssignment.class,
+                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
+                        Joiners.filtering((d, a) ->
+                                a.getProducedItem() != null
+                                        && a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
+                .groupBy(
+                        (d, a) -> d,
+                        ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
+                .ifNotExists(DemandOrder.class,
+                        Joiners.equal((d, producedSum) -> d.getItem(), DemandOrder::getItem),
+                        Joiners.lessThan((d, producedSum) -> d.getDueTimeSlotIndex(), DemandOrder::getDueTimeSlotIndex))
+                .penalize(HardSoftScore.ofSoft(1000), (d, producedSum) -> {
+                    int demand = d.getQuantity();
+                    int available = Math.max(0, producedSum);
+                    int over = Math.max(0, available - demand);
+                    int tolerated = (int) Math.ceil(demand * 0.03) - 1; // <3% 不罚；>=3% 才罚
+                    tolerated = Math.max(0, tolerated);
+                    return Math.max(0, over - tolerated);
+                })
+                .asConstraint("软-按桶超产惩罚-首桶（>=3%开始处罚）");
+    }
+
+    // 后续桶：使用净可用（扣除前桶需求）来判断超产
+    private Constraint penalizeOverProductionLaterBuckets(ConstraintFactory factory) {
+        return factory.forEach(DemandOrder.class)
+                .join(ProductionAssignment.class,
+                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
+                        Joiners.filtering((d, a) ->
+                                a.getProducedItem() != null
+                                        && a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
+                .groupBy(
+                        (d, a) -> d,
+                        ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
+                .join(DemandOrder.class,
+                        Joiners.equal((d, producedSum) -> d.getItem(), DemandOrder::getItem),
+                        Joiners.lessThan((d, producedSum) -> d.getDueTimeSlotIndex(), DemandOrder::getDueTimeSlotIndex))
+                .groupBy(
+                        (d, producedSum, prev) -> d,
+                        (d, producedSum, prev) -> producedSum,
+                        ConstraintCollectors.sum((d, producedSum, prev) -> prev.getQuantity()))
+                .penalize(HardSoftScore.ofSoft(1000), (d, producedSum, prevSum) -> {
+                    int demand = d.getQuantity();
+                    int available = Math.max(0, producedSum - prevSum);
+                    int over = Math.max(0, available - demand);
+                    int tolerated = (int) Math.ceil(demand * 0.03) - 1;
+                    tolerated = Math.max(0, tolerated);
+                    return Math.max(0, over - tolerated);
+                })
+                .asConstraint("软-按桶超产惩罚-后续桶（>=3%开始处罚）");
+    }
+
+    // =========================
+    // 软约束（相邻时段切换工艺惩罚）
+    // =========================
+
+    // 同一条产线相邻时间槽如果切换工艺，则轻度惩罚，避免频繁切换
+    private Constraint penalizeRouterChange(ConstraintFactory factory) {
         return factory.forEachUniquePair(
                         ProductionAssignment.class,
                         Joiners.equal(ProductionAssignment::getLine),
                         Joiners.lessThan(a -> a.getTimeSlot().getIndex()))
                 .filter((a1, a2) ->
-                        a1.getRouter() != null &&
-                                a1.getRouter().equals(a2.getRouter()) &&
-                                a2.getTimeSlot().getIndex() == a1.getTimeSlot().getIndex() + 1)
-                .reward(HardSoftScore.ofSoft(1))
-                .asConstraint("相邻时段保持同工艺（减少切换）");
-    }
-
-    // 无需求产出惩罚（防止产能浪费，权重适中）
-    private Constraint discourageNonDemandedProduction(ConstraintFactory factory) {
-        return factory.forEach(ProductionAssignment.class)
-                .filter(a -> a.getRouter() != null)
-                .ifNotExists(DemandOrder.class, Joiners.equal(ProductionAssignment::getProducedItem, DemandOrder::getItem))
-                .penalize(HardSoftScore.ofSoft(5), ProductionAssignment::getProducedQuantity)
-                .asConstraint("无需求的生产不鼓励");
-    }
-
-    private Constraint penalizeEarlyProduction(ConstraintFactory factory) {
-        return factory.forEach(DemandOrder.class)
-                .join(ProductionAssignment.class,
-                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
-                        Joiners.filtering((d, a) -> a.getTimeSlot().getIndex() < d.getDueTimeSlotIndex()))
-                .penalize(HardSoftScore.ofSoft(2), (d, a) -> d.getDueTimeSlotIndex() - a.getTimeSlot().getIndex())
-                .asConstraint("提前生产惩罚");
-    }
-
-    private Constraint penalizeUnmetDemand(ConstraintFactory factory) {
-        return factory.forEach(DemandOrder.class)
-                .join(ProductionAssignment.class,
-                        Joiners.equal(DemandOrder::getItem, ProductionAssignment::getProducedItem),
-                        Joiners.filtering((d, a) -> a.getProducedItem() != null &&
-                                a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
-                .groupBy(
-                        (d, a) -> d,
-                        ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
-                // 没产够的部分，每件扣分
-                .penalize(HardSoftScore.ofSoft(200), (d, producedSum) -> Math.max(0, d.getQuantity() - producedSum))
-                .asConstraint("未满足需求惩罚");
+                        a1.getRouter() != null
+                                && a2.getRouter() != null
+                                && a2.getTimeSlot().getIndex() == a1.getTimeSlot().getIndex() + 1
+                                && !a1.getRouter().equals(a2.getRouter()))
+                .penalize(HardSoftScore.ofSoft(5))
+                .asConstraint("软-相邻时段切换工艺惩罚");
     }
 }

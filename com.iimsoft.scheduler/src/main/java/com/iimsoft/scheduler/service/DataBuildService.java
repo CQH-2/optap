@@ -14,6 +14,12 @@ import java.util.stream.Collectors;
  * - 支持直接传入 Root DTO
  * - 也支持传入 JSON 文件路径（自动读取）
  * - 自动生成时间槽、分解 BOM 子件需求、叠加安全库存、扣减初始库存、生成 Assignment
+ *
+ * 重要改动（保留“交付桶”）：
+ * - 需求不再按物料聚合为单条，而是“保留每条需求为一个桶”（同物料不同到期日的多条需求分别为不同桶）
+ * - BOM分解也按桶生成对应的子件桶（到期日前移 child.leadTime 天）
+ * - 初始库存按“同物料的桶按到期早晚排序，从前往后逐桶扣减”
+ * - 安全库存作为末尾的一个桶（截止为时间窗最后一天）
  */
 public class DataBuildService {
 
@@ -40,7 +46,7 @@ public class DataBuildService {
                 ? 0
                 : dto.items.stream().mapToInt(i -> i.leadTime).max().orElse(0);
 
-        LocalDate slotStart = earliestDue.minusDays(maxLead);
+        LocalDate slotStart = earliestDue.minusDays(3);
         LocalDate slotEnd = latestDue;
 
         return buildSchedule(dto, slotStart, slotEnd, workStart, workEnd);
@@ -58,6 +64,7 @@ public class DataBuildService {
 
     /**
      * 直接传入已解析的 Root DTO，使用用户指定的时间窗和工作时间，构建 ProductionSchedule。
+     * 关键点：保留“桶”，不再聚合为每物料一条需求。
      */
     public ProductionSchedule buildSchedule(ImportDTOs.Root dto,
                                             LocalDate slotStart, LocalDate slotEnd,
@@ -131,7 +138,7 @@ public class DataBuildService {
         // 6) TimeSlots
         List<TimeSlot> timeSlots = generateTimeSlots(slotStart, slotEnd, workStart, workEnd);
 
-        // 7) 原始需求（DTO -> DemandOrder）
+        // 7) 原始需求（DTO -> DemandOrder）作为“首批桶”
         List<DemandOrder> baseDemands = new ArrayList<>();
         if (dto.demands != null) {
             for (ImportDTOs.DemandDTO dmd : dto.demands) {
@@ -143,63 +150,51 @@ public class DataBuildService {
             }
         }
 
-        // 8) 需求汇总（含 BOM 分解 + 安全库存），再扣减初始在库
-        Map<Item, Integer> itemToTotalDemand = new LinkedHashMap<>();
-        Map<Item, LocalDate> itemToDueDate = new HashMap<>();
-        Map<Item, Integer> itemToDueSlotIndex = new HashMap<>();
-
-        // 8.1 累计原始需求 + 一层 BOM 子件需求（按子件 leadTime 前置）
-        for (DemandOrder d0 : baseDemands) {
-            itemToTotalDemand.merge(d0.getItem(), d0.getQuantity(), Integer::sum);
-            itemToDueDate.put(d0.getItem(), d0.getDueDate());
-            itemToDueSlotIndex.put(d0.getItem(), d0.getDueTimeSlotIndex());
-
-            for (BomArc arc : bomArcs) {
-                if (arc.getParent().equals(d0.getItem())) {
-                    Item child = arc.getChild();
-                    int childNeed = d0.getQuantity() * arc.getQuantityPerParent();
-                    int lead = child.getLeadTime();
-                    LocalDate childDueDate = d0.getDueDate().minusDays(lead);
-                    // Clamp 到时间窗
-                    if (childDueDate.isBefore(slotStart)) childDueDate = slotStart;
-                    if (childDueDate.isAfter(slotEnd)) childDueDate = slotEnd;
-                    int childDueIdx = lastIndexForDateOrClamp(timeSlots, childDueDate);
-
-                    itemToTotalDemand.merge(child, childNeed, Integer::sum);
-                    // 如果多次出现，取“更早的”截止时间（更紧急）
-                    itemToDueDate.merge(child, childDueDate, (oldV, newV) -> oldV.isBefore(newV) ? oldV : newV);
-                    itemToDueSlotIndex.merge(child, childDueIdx, Math::min);
-                }
-            }
+        // 8) 桶化需求（保留每条桶，不聚合）：
+        //    - 从 baseDemands 出发，按桶生成父件需求
+        //    - BOM 一层分解：为每个桶生成子件桶，按 child.leadTime 向前平移到期
+        //    - 将安全库存作为末尾的“安全库存桶”
+        //    - 最后按物料、按到期顺序分配初始在库，逐桶冲减
+        List<DemandOrder> demandBuckets = new ArrayList<>();
+// 8.1 父件桶：直接加入
+        demandBuckets.addAll(baseDemands);
+// 8.2 递归分解BOM桶
+        for (DemandOrder parentBucket : baseDemands) {
+            decomposeBucket(parentBucket, bomArcs, demandBuckets, itemMap, slotStart, slotEnd, timeSlots);
         }
 
-        // 8.2 安全库存作为需求项（设为时间窗最后一天的最后一个槽）
+        // 8.3 安全库存桶：每个物料一个安全库存桶，截止设为时间窗最后一天
         LocalDate endDate = timeSlots.isEmpty() ? slotEnd : timeSlots.get(timeSlots.size() - 1).getDate();
         int endIdx = lastIndexForDateOrClamp(timeSlots, endDate);
         for (Map.Entry<Item, Integer> e : safetyStockMap.entrySet()) {
             Item item = e.getKey();
             int safety = e.getValue() == null ? 0 : e.getValue();
             if (safety > 0) {
-                itemToTotalDemand.merge(item, safety, Integer::sum);
-                itemToDueDate.putIfAbsent(item, endDate);
-                itemToDueSlotIndex.putIfAbsent(item, endIdx);
+                demandBuckets.add(new DemandOrder(item, safety, endDate, endIdx));
             }
         }
 
-        // 8.3 扣减初始库存（<0 则按 0 处理）
+        // 8.4 初始库存冲减：同物料的桶按到期升序逐桶冲减
         List<DemandOrder> finalDemands = new ArrayList<>();
-        for (Map.Entry<Item, Integer> e : itemToTotalDemand.entrySet()) {
+        Map<Item, List<DemandOrder>> bucketsByItem = demandBuckets.stream()
+                .collect(Collectors.groupingBy(DemandOrder::getItem, LinkedHashMap::new, Collectors.toList()));
+        for (Map.Entry<Item, List<DemandOrder>> e : bucketsByItem.entrySet()) {
             Item item = e.getKey();
-            int total = e.getValue();
-            int initial = initialOnHandMap.getOrDefault(item, 0);
-            int needToProduce = total - initial;
-            if (needToProduce > 0) {
-                finalDemands.add(new DemandOrder(
-                        item,
-                        needToProduce,
-                        itemToDueDate.get(item),
-                        itemToDueSlotIndex.get(item)
-                ));
+            List<DemandOrder> buckets = e.getValue().stream()
+                    .sorted(Comparator.comparingInt(DemandOrder::getDueTimeSlotIndex)) // 到期越早优先
+                    .collect(Collectors.toList());
+            int remainingInitial = initialOnHandMap.getOrDefault(item, 0);
+
+            for (DemandOrder bucket : buckets) {
+                int qty = bucket.getQuantity();
+                if (remainingInitial > 0) {
+                    int used = Math.min(qty, remainingInitial);
+                    qty -= used;
+                    remainingInitial -= used;
+                }
+                if (qty > 0) {
+                    finalDemands.add(new DemandOrder(item, qty, bucket.getDueDate(), bucket.getDueTimeSlotIndex()));
+                }
             }
         }
 
@@ -255,5 +250,26 @@ public class DataBuildService {
                 .mapToInt(TimeSlot::getIndex)
                 .max()
                 .orElse(slots.get(slots.size() - 1).getIndex());
+    }
+
+    // 递归分解每个桶
+    private void decomposeBucket(DemandOrder parentBucket, List<BomArc> bomArcs, List<DemandOrder> buckets,
+                                 Map<String, Item> itemMap, LocalDate slotStart, LocalDate slotEnd, List<TimeSlot> timeSlots) {
+        for (BomArc arc : bomArcs) {
+            if (!arc.getParent().equals(parentBucket.getItem())) continue;
+            Item child = arc.getChild();
+            int childNeed = parentBucket.getQuantity() * arc.getQuantityPerParent();
+            int lead = child.getLeadTime();
+
+            LocalDate childDueDate = parentBucket.getDueDate().minusDays(lead);
+            if (childDueDate.isBefore(slotStart)) childDueDate = slotStart;
+            if (childDueDate.isAfter(slotEnd)) childDueDate = slotEnd;
+            int childDueIdx = lastIndexForDateOrClamp(timeSlots, childDueDate);
+
+            DemandOrder childBucket = new DemandOrder(child, childNeed, childDueDate, childDueIdx);
+            buckets.add(childBucket);
+            // 递归分解子件桶
+            decomposeBucket(childBucket, bomArcs, buckets, itemMap, slotStart, slotEnd, timeSlots);
+        }
     }
 }
