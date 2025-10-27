@@ -90,9 +90,7 @@ public class App {
 
         System.out.println("\n==== 调度结果（本行影响 + 全局库存变动 + 全局库存） ====");
         var assignments = new ArrayList<>(solution.getAssignmentList());
-        assignments.sort(Comparator
-                .comparing((ProductionAssignment a) -> a.getTimeSlot().getIndex())
-                .thenComparing(a -> a.getLine().getCode()));
+        assignments.sort(Comparator.comparing((ProductionAssignment a) -> a.getTimeSlot().getIndex()).thenComparing(a -> a.getLine().getCode()));
         for (ProductionAssignment a : assignments) {
             String line = a.getLine().getCode();
             String time = a.getTimeSlot().toString();
@@ -333,13 +331,12 @@ public class App {
         ExampleData d = new ExampleData();
 
         // 物料
-        Item A = new Item("A", "Assembly A");
-        Item B = new Item("B", "Part B");
-        Item C = new Item("C", "Part C");
-        // 新增一个总成物料 X，以及其子件 D、E
-        Item X = new Item("X", "Assembly X");
-        Item D = new Item("D", "Part D");
-        Item E = new Item("E", "Part E");
+        Item A = new Item("A", "Assembly A", 0); // 总成提前期0
+        Item B = new Item("B", "Part B", 1);     // B提前期1天
+        Item C = new Item("C", "Part C", 2);     // C提前期2天
+        Item X = new Item("X", "Assembly X", 0);
+        Item D = new Item("D", "Part D", 1);
+        Item E = new Item("E", "Part E", 1);
         d.items = List.of(A, B, C, X, D, E);
 
         // BOM：
@@ -374,7 +371,6 @@ public class App {
         // 时间槽：两天 8-19（原样）
         LocalDate day1 = LocalDate.now();
         LocalDate day2 = day1.plusDays(1);
-        LocalDate day3 = day2.plusDays(1);
         List<TimeSlot> slots = new ArrayList<>();
         int index = 0;
         for (LocalDate d0 : List.of(day1, day2)) {
@@ -406,9 +402,70 @@ public class App {
                 .max()
                 .orElse(dueIndexDay1 + 12);
 
-        DemandOrder demandA = new DemandOrder(A, 50, day1, dueIndexDay1);
-        DemandOrder demandX = new DemandOrder(X, 30, day2, dueIndexDay2);
-        d.demands = List.of(demandA, demandX);
+        DemandOrder demandA = new DemandOrder(A, 500, day1, dueIndexDay1);
+        DemandOrder demandX = new DemandOrder(X, 300, day2, dueIndexDay2);
+
+        // =========== 预分解子料需求 ===========
+
+        List<DemandOrder> origDemands = List.of(demandA, demandX);
+        Map<Item, Integer> itemToTotalDemand = new LinkedHashMap<>();
+        Map<Item, LocalDate> itemToDueDate = new HashMap<>();
+        Map<Item, Integer> itemToDueSlotIndex = new HashMap<>();
+
+// 1. 统计所有需求（含BOM分解，含安全库存）
+        for (DemandOrder d0 : origDemands) {
+            itemToTotalDemand.merge(d0.getItem(), d0.getQuantity(), Integer::sum);
+            itemToDueDate.put(d0.getItem(), d0.getDueDate());
+            itemToDueSlotIndex.put(d0.getItem(), d0.getDueTimeSlotIndex());
+            // 分解BOM（仅一层，若需多层递归可扩展）
+            for (BomArc arc : d.bomArcs) {
+                if (arc.getParent().equals(d0.getItem())) {
+                    int childNeed = d0.getQuantity() * arc.getQuantityPerParent();
+                    Item child = arc.getChild();
+                    int lead = child.getLeadTime();
+                    LocalDate childDueDate = d0.getDueDate().minusDays(lead);
+                    int childDueSlotIndex = d.timeSlots.stream()
+                            .filter(s -> s.getDate().equals(childDueDate))
+                            .mapToInt(TimeSlot::getIndex)
+                            .max()
+                            .orElse(d0.getDueTimeSlotIndex());
+                    itemToTotalDemand.merge(child, childNeed, Integer::sum);
+                    itemToDueDate.put(child, childDueDate);
+                    itemToDueSlotIndex.put(child, childDueSlotIndex);
+                }
+            }
+        }
+
+// 2. 统计安全库存（所有物料）
+        for (ItemInventory inv : d.inventories) {
+            int safety = inv.getSafetyStock();
+            if (safety > 0) {
+                itemToTotalDemand.merge(inv.getItem(), safety, Integer::sum);
+                // 如果没有截止时间，则默认最晚的一个
+                itemToDueDate.putIfAbsent(inv.getItem(), day2); // 你可自定义策略
+                itemToDueSlotIndex.putIfAbsent(inv.getItem(), d.timeSlots.size() - 1);
+            }
+        }
+
+// 3. 扣减初始库存，剩余才需生产（不能小于0）
+        List<DemandOrder> allDemands = new ArrayList<>();
+        for (Item item : itemToTotalDemand.keySet()) {
+            int totalDemand = itemToTotalDemand.get(item);
+            int initial = d.inventories.stream()
+                    .filter(inv -> inv.getItem().equals(item))
+                    .mapToInt(ItemInventory::getInitialOnHand)
+                    .findFirst().orElse(0);
+            int needToProduce = totalDemand - initial;
+            if (needToProduce > 0) {
+                allDemands.add(new DemandOrder(
+                        item,
+                        needToProduce,
+                        itemToDueDate.get(item),
+                        itemToDueSlotIndex.get(item)
+                ));
+            }
+        }
+        d.demands = allDemands;
 
         // 规划实体：每条产线 * 每个时间槽
         List<ProductionAssignment> assignments = new ArrayList<>();

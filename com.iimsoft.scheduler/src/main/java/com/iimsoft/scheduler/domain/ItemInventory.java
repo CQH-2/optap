@@ -1,12 +1,16 @@
 package com.iimsoft.scheduler.domain;
 
+import lombok.Data;
+
 /**
  * 物料库存事实：初始在库（不随解变量变化）
  */
+@Data
 public class ItemInventory {
 
     private Item item;
     private int initialOnHand;
+    private int safetyStock;
 
     public ItemInventory() {
     }
@@ -16,21 +20,6 @@ public class ItemInventory {
         this.initialOnHand = initialOnHand;
     }
 
-    public Item getItem() {
-        return item;
-    }
-
-    public void setItem(Item item) {
-        this.item = item;
-    }
-
-    public int getInitialOnHand() {
-        return initialOnHand;
-    }
-
-    public void setInitialOnHand(int initialOnHand) {
-        this.initialOnHand = initialOnHand;
-    }
 
     @Override
     public String toString() {

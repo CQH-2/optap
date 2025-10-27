@@ -2,8 +2,14 @@ package com.iimsoft.scheduler.solver;
 
 import com.iimsoft.scheduler.domain.*;
 
+import org.drools.tms.beliefsystem.defeasible.Join;
+import org.optaplanner.constraint.streams.bavet.quad.BavetFlattenLastQuadConstraintStream;
 import org.optaplanner.core.api.score.buildin.hardsoft.HardSoftScore;
 import org.optaplanner.core.api.score.stream.*;
+import org.optaplanner.core.api.score.stream.quad.QuadConstraintBuilder;
+import org.optaplanner.core.api.score.stream.quad.QuadConstraintStream;
+import org.optaplanner.core.api.score.stream.quad.QuadJoiner;
+import org.optaplanner.core.impl.util.Quadruple;
 
 public class ProductionConstraintProvider implements ConstraintProvider {
 
@@ -19,62 +25,55 @@ public class ProductionConstraintProvider implements ConstraintProvider {
 
     // 硬约束：产线必须支持所选工艺
     private Constraint routerMustBeSupportedByLine(ConstraintFactory factory) {
-        return factory.from(ProductionAssignment.class)
+        return factory.forEach(ProductionAssignment.class)
                 .filter(a -> a.getRouter() != null && !a.getLine().supports(a.getRouter()))
-                .penalize(HardSoftScore.ofHard(10))
+                .penalize(HardSoftScore.ofHard(1000))
                 .asConstraint("Router must be supported by line");
     }
 
-    // 硬约束：任意时间点，子件累计产出 >= 父件累计产出 * 用量
-//    private Constraint bomChildrenCumulativeSufficient(ConstraintFactory factory) {
-//        // 锚定为每个时间槽（作为累计的“截点”）与每条 BOM 边的组合
-//        return factory.from(TimeSlot.class)
-//                .join(BomArc.class, Joiners.filtering((t, arc) -> true))
-//                // 汇总到该时间槽（含）之前的所有产出（父/子件）
-//                .join(ProductionAssignment.class,
-//                        Joiners.filtering((t, arc, a) ->
-//                                a.getRouter() != null &&
-//                                        a.getTimeSlot().getIndex() <= t.getIndex() &&
-//                                        (arc.getChild().equals(a.getProducedItem()) ||
-//                                                arc.getParent().equals(a.getProducedItem()))
-//                        ))
-//                .groupBy((t, arc, a) -> t,
-//                        (t, arc, a) -> arc,
-//                        // 子件累计产量
-//                        ConstraintCollectors.sumLong((t, arc, a) ->
-//                                arc.getChild().equals(a.getProducedItem()) ? a.getProducedQuantity() : 0),
-//                        // 父件累计产量
-//                        ConstraintCollectors.sumLong((t, arc, a) ->
-//                                arc.getParent().equals(a.getProducedItem()) ? a.getProducedQuantity() : 0))
-//                .filter((t, arc, childSum, parentSum) -> childSum < parentSum * arc.getQuantityPerParent())
-//                .penalize(HardSoftScore.ONE_HARD,
-//                        (t, arc, childSum, parentSum) -> (int) (parentSum * arc.getQuantityPerParent() - childSum))
-//                .asConstraint("BOM children cumulative sufficient");
-//    }
-
-    // 软约束：按到期满足需求（未满足数量按软分惩罚）
-//    private Constraint fulfillDemandByDue(ConstraintFactory factory) {
-//        return factory.from(DemandOrder.class)
-//                .join(ProductionAssignment.class,
-//                        Joiners.filtering((d, a) ->
-//                                a.getRouter() != null &&
-//                                        d.getItem().equals(a.getProducedItem()) &&
-//                                        a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
-//                .groupBy(d -> d, ConstraintCollectors.sumLong((d, a) -> a.getProducedQuantity()))
-//                .filter((d, producedSum) -> producedSum < d.getQuantity())
-//                .penalize(HardSoftScore.ONE_SOFT, (d, producedSum) -> (int) (d.getQuantity() - producedSum))
-//                .asConstraint("Demand fulfillment by due date");
-//    }
 
     private Constraint meetDemandByDueDate(ConstraintFactory factory) {
-        return factory.forEach(DemandOrder.class)
+       return factory.forEach(ProductionAssignment.class)
+                .filter(a->a.getProducedItem() != null)
+                .join(DemandOrder.class,Joiners.filtering((a,b)->b.getItem().equals(a.getProducedItem())&&a.getTimeSlot().getIndex()<=b.getDueTimeSlotIndex()))
+                .groupBy((a,b)->b, ConstraintCollectors.sum((a,b)->a.getProducedQuantity()))
+                .filter((b,producedSum)->producedSum>=b.getQuantity())
+                .penalize(HardSoftScore.ONE_HARD,(b,producedSum)->(b.getQuantity()-producedSum))
+                .asConstraint("交货日期前不满足需求");
+
+    }
+
+
+
+    private Constraint inventoryBalanceNonNegative(ConstraintFactory factory) {
+        return factory.forEach(TimeSlot.class)
+                .join(BomArc.class)
                 .join(ProductionAssignment.class,
-                        Joiners.filtering(
-                                (d, a) -> a.getRouter() != null && d.getItem().equals(a.getProducedItem()) && a.getTimeSlot().getIndex() <= d.getDueTimeSlotIndex()))
-                .groupBy((d, a) -> d, ConstraintCollectors.sum((d, a) -> a.getProducedQuantity()))
-                .filter((d, producedSum) -> producedSum < d.getQuantity())
-                .penalize(HardSoftScore.ONE_HARD, (d, producedSum) -> (d.getQuantity() - producedSum) * 10)
-                .asConstraint("交货日期前满足需求");
+                        Joiners.filtering((t, arc, a) ->
+                                a.getProducedItem() != null &&
+                                        a.getTimeSlot().getIndex() <= t.getIndex() &&
+                                        (arc.getChild().equals(a.getProducedItem()) || arc.getParent().equals(a.getProducedItem()))
+                        ))
+                .groupBy(
+                        // 分组键：时间槽、BOM 边
+                        (t, arc, a) -> t,
+                        (t, arc, a) -> arc,
+                        // 子件累计产量
+                        ConstraintCollectors.sum((t, arc, a) ->
+                                arc.getChild().equals(a.getProducedItem()) ? a.getProducedQuantity() : 0),
+                        // 父件累计产量
+                        ConstraintCollectors.sum((t, arc, a) ->
+                                arc.getParent().equals(a.getProducedItem()) ? a.getProducedQuantity() : 0)
+                )
+                // 用record封装
+                .map(InventoryBalanceTuple::new)
+                // 在分组后再把子件初始库存 join 进来
+                .join(ItemInventory.class, Joiners.equal(tuple -> tuple.arc.getChild(), ItemInventory::getItem))
+                // 余额判定
+                .filter((tuple, inv) -> inv.getInitialOnHand() + tuple.getChildSum() < tuple.getParentSum() * tuple.arc.getQuantityPerParent())
+                .penalize(HardSoftScore.ONE_HARD,
+                        (tuple, inv) -> tuple.parentSum * tuple.arc.getQuantityPerParent() - (inv.getInitialOnHand() + tuple.childSum))
+                .asConstraint("子件库存余额不能为负（含初始库存）");
     }
 
     // 软约束：减少空闲（鼓励分配工艺）
