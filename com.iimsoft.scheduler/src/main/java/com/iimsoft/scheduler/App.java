@@ -35,13 +35,13 @@ public class App {
 
         // 打印约束解释 summary
         var scoreManager = org.optaplanner.core.api.score.ScoreManager.create(solverFactory);
-        IOService.exportScheduleToCsv(solution, "schedule_output.csv");
+//        IOService.exportScheduleToCsv(solution, "schedule_output.csv");
 
 //        System.out.println(scoreManager.explain(solution).getSummary());
 //
 //        System.out.println("Score: " + solution.getScore());
 
-//        printSchedule(solution);
+        printSchedule(solution);
 //
 //        // 新增：导出为 CSV 风格的汇总（按 生产线、日期、物料，小时连续合并为时间段）
 //        printCsvMergedByLineDateItem(solution);

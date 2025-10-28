@@ -1,31 +1,20 @@
 {
   "items": [
-    { "code": "A", "name": "总成A", "leadTime": 1 },
-    { "code": "B", "name": "半成品B", "leadTime": 1 },
-    { "code": "C", "name": "原材料C", "leadTime": 1 }
+    { "code": "1100002101", "name": "左侧围前门环加强板-总成｜LAC-54011194｜W02", "leadTime": 1 }
   ],
-  "bomArcs": [
-    { "parent": "A", "child": "B", "quantityPerParent": 2 },
-    { "parent": "B", "child": "C", "quantityPerParent": 3 }
-  ],
+  "bomArcs": [],
   "routers": [
-    { "code": "rA", "item": "A", "speedPerHour": 10 },
-    { "code": "rB", "item": "B", "speedPerHour": 10 },
-    { "code": "rC", "item": "C", "speedPerHour": 10 }
+    { "code": "rA", "item": "1100002101", "speedPerHour": 40 }
   ],
   "lines": [
-    { "code": "L1", "supportedRouters": ["rA"] },
-    { "code": "L2", "supportedRouters": ["rB"] },
-    { "code": "L3", "supportedRouters": ["rC"] }
+    { "code": "L1", "supportedRouters": ["rA"] }
   ],
   "inventories": [
-    { "item": "A", "initialOnHand": 0, "safetyStock": 0 },
-    { "item": "B", "initialOnHand": 0, "safetyStock": 0 },
-    { "item": "C", "initialOnHand": 0, "safetyStock": 0 }
+    { "item": "1100002101", "initialOnHand": 0, "safetyStock": 0 }
   ],
   "demands": [
-    { "item": "A", "quantity": 60, "dueDate": "2025-11-05" },
-    { "item": "A", "quantity": 40, "dueDate": "2025-11-06" }
+    { "item": "1100002101", "quantity": 336, "dueDate": "2025-10-26" },
+    { "item": "1100002101", "quantity": 400, "dueDate": "2025-10-27" }
   ]
 
 }

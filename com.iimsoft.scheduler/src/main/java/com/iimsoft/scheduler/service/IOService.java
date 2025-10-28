@@ -1,13 +1,11 @@
 package com.iimsoft.scheduler.service;
 
 import com.iimsoft.scheduler.domain.ProductionAssignment;
-import com.iimsoft.scheduler.domain.ProductionSchedule;
-import com.iimsoft.scheduler.domain.TimeSlot;
-import com.iimsoft.scheduler.domain.Item;
 import com.iimsoft.scheduler.domain.ProductionLine;
+import com.iimsoft.scheduler.domain.ProductionSchedule;
+import com.iimsoft.scheduler.domain.Item;
 
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -77,7 +75,7 @@ public class IOService {
                             ));
 
             for (var lineEntry : grouped.entrySet()) {
-                ProductionLine line = lineEntry.getKey();
+                ProductionLine productionLine = lineEntry.getKey();
                 for (var itemEntry : lineEntry.getValue().entrySet()) {
                     Item item = itemEntry.getKey();
                     for (var dateEntry : itemEntry.getValue().entrySet()) {
@@ -112,7 +110,7 @@ public class IOService {
                             }
                             // 写一行
                             writer.write(String.join(",",
-                                    line.getCode(),
+                                    productionLine.getCode(),
                                     item.getCode(),
                                     date.toString(),
                                     String.format("%02d:00", startHour),

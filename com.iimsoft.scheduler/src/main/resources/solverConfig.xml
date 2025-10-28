@@ -3,8 +3,11 @@
     <solutionClass>com.iimsoft.scheduler.domain.ProductionSchedule</solutionClass>
     <entityClass>com.iimsoft.scheduler.domain.ProductionAssignment</entityClass>
 
+    <!-- 使用增量计分器替代 ConstraintProvider -->
     <scoreDirectorFactory>
-        <constraintProviderClass>com.iimsoft.scheduler.solver.ProductionConstraintProvider</constraintProviderClass>
+        <incrementalScoreCalculatorClass>
+            com.iimsoft.scheduler.solver.GlobalInventoryIncrementalScoreCalculator
+        </incrementalScoreCalculatorClass>
     </scoreDirectorFactory>
 
     <phase>
@@ -18,7 +21,7 @@
     </phase>
 
     <termination>
-        <secondsSpentLimit>60</secondsSpentLimit>
+        <secondsSpentLimit>5</secondsSpentLimit>
     </termination>
 
     <environmentMode>REPRODUCIBLE</environmentMode>
