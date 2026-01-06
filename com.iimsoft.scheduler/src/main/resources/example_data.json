@@ -1,20 +1,27 @@
 {
   "items": [
-    { "code": "1100002101", "name": "左侧围前门环加强板-总成｜LAC-54011194｜W02", "leadTime": 1 }
+    { "code": "A", "name": "总成A", "leadTime": 0 },
+    { "code": "B", "name": "零件B", "leadTime": 1 },
+    { "code": "C", "name": "零件C", "leadTime": 0 }
   ],
-  "bomArcs": [],
+  "bomArcs": [
+    { "parent": "A", "child": "B", "quantityPerParent": 2 },
+    { "parent": "A", "child": "C", "quantityPerParent": 1 }
+  ],
   "routers": [
-    { "code": "rA", "item": "1100002101", "speedPerHour": 40 }
+    { "code": "rA", "item": "A", "speedPerHour": 20 },
+    { "code": "rB", "item": "B", "speedPerHour": 30 },
+    { "code": "rC", "item": "C", "speedPerHour": 25 }
   ],
   "lines": [
-    { "code": "L1", "supportedRouters": ["rA"] }
+    { "code": "L1", "supportedRouters": ["rA", "rB", "rC"] }
   ],
   "inventories": [
-    { "item": "1100002101", "initialOnHand": 0, "safetyStock": 0 }
+    { "item": "A", "initialOnHand": 10, "safetyStock": 5 },
+    { "item": "B", "initialOnHand": 30, "safetyStock": 10 },
+    { "item": "C", "initialOnHand": 20, "safetyStock": 5 }
   ],
   "demands": [
-    { "item": "1100002101", "quantity": 336, "dueDate": "2025-10-26" },
-    { "item": "1100002101", "quantity": 400, "dueDate": "2025-10-27" }
+    { "item": "A", "quantity": 100, "dueDate": "2025-10-28" }
   ]
-
 }

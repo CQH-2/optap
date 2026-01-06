@@ -38,8 +38,8 @@ public class App {
 //        IOService.exportScheduleToCsv(solution, "schedule_output.csv");
 
 //        System.out.println(scoreManager.explain(solution).getSummary());
-//
-//        System.out.println("Score: " + solution.getScore());
+
+        System.out.println("Score: " + solution.getScore());
 
         printSchedule(solution);
 //
