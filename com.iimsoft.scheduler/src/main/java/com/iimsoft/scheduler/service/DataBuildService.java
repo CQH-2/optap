@@ -55,7 +55,15 @@ public class DataBuildService {
         Map<String, Item> itemMap = new LinkedHashMap<>();
         if (dto.items != null) {
             for (ImportDTOs.ItemDTO it : dto.items) {
-                itemMap.put(it.code, new Item(it.code, it.name, it.leadTime));
+                ItemType type = ItemType.GENERIC;
+                if (it.itemType != null) {
+                    try {
+                        type = ItemType.valueOf(it.itemType.toUpperCase());
+                    } catch (IllegalArgumentException e) {
+                        // 如果解析失败，使用默认值GENERIC
+                    }
+                }
+                itemMap.put(it.code, new Item(it.code, it.name, it.leadTime, type));
             }
         }
 
@@ -77,7 +85,9 @@ public class DataBuildService {
             for (ImportDTOs.RouterDTO r : dto.routers) {
                 Item item = itemMap.get(r.item);
                 if (item != null) {
-                    routerMap.put(r.code, new Router(r.code, item, r.speedPerHour));
+                    int setupTime = r.setupTimeHours > 0 ? r.setupTimeHours : 0;
+                    int minBatch = r.minBatchSize > 0 ? r.minBatchSize : 0;
+                    routerMap.put(r.code, new Router(r.code, item, r.speedPerHour, setupTime, minBatch));
                 }
             }
         }
@@ -119,25 +129,45 @@ public class DataBuildService {
         // 7) 基础需求桶（DTO -> DemandOrder，按 item+dueDate 形成桶）
         List<DemandOrder> bucketDemands = new ArrayList<>();
         if (dto.demands != null) {
-            // 先按 item+dueDate 合并（同日同物料合并为一个桶）
-            Map<String, Integer> agg = new LinkedHashMap<>();
+            // 需求优先级映射：key=(item+dueDate), value=(priority, qty)
+            Map<String, Map<String, Object>> demandMap = new LinkedHashMap<>();
+            
             for (ImportDTOs.DemandDTO dmd : dto.demands) {
                 Item it = itemMap.get(dmd.item);
                 if (it == null) continue;
                 LocalDate dueDate = LocalDate.parse(dmd.dueDate);
                 String key = it.getCode() + "@" + dueDate;
-                agg.merge(key, dmd.quantity, Integer::sum);
+                
+                // 如果同一桶有多个需求，取最高优先级（最大值）
+                int priority = dmd.priority > 0 ? dmd.priority : 5;
+                demandMap.compute(key, (k, v) -> {
+                    if (v == null) {
+                        v = new HashMap<>();
+                        v.put("item", it);
+                        v.put("dueDate", dueDate);
+                        v.put("qty", dmd.quantity);
+                        v.put("priority", priority);
+                    } else {
+                        int existQty = (int) v.get("qty");
+                        int existPriority = (int) v.get("priority");
+                        v.put("qty", existQty + dmd.quantity);
+                        v.put("priority", Math.max(priority, existPriority));
+                    }
+                    return v;
+                });
             }
-            for (Map.Entry<String, Integer> e : agg.entrySet()) {
-                String[] parts = e.getKey().split("@", 2);
-                Item it = itemMap.get(parts[0]);
-                LocalDate due = LocalDate.parse(parts[1]);
-                int dueIdx = lastIndexForDateOrClamp(timeSlots, due);
-                bucketDemands.add(new DemandOrder(it, e.getValue(), due, dueIdx));
+            
+            for (Map<String, Object> demand : demandMap.values()) {
+                Item it = (Item) demand.get("item");
+                LocalDate dueDate = (LocalDate) demand.get("dueDate");
+                int qty = (int) demand.get("qty");
+                int priority = (int) demand.get("priority");
+                int dueIdx = lastIndexForDateOrClamp(timeSlots, dueDate);
+                bucketDemands.add(new DemandOrder(it, qty, dueDate, dueIdx, priority));
             }
         }
 
-        // 8) BOM 分解：父桶 -> 子桶（前置 leadTime，超出时间窗 clamp）
+        // 8) BOM 分解：父桶 -> 子桶（前置 leadTime，超出时间窗 clamp，继承优先级）
         List<DemandOrder> bomBuckets = new ArrayList<>();
         for (DemandOrder parentBucket : new ArrayList<>(bucketDemands)) {
             for (BomArc arc : bomArcs) {
@@ -148,7 +178,8 @@ public class DataBuildService {
                     if (childDue.isBefore(slotStart)) childDue = slotStart;
                     if (childDue.isAfter(slotEnd)) childDue = slotEnd;
                     int childIdx = lastIndexForDateOrClamp(timeSlots, childDue);
-                    bomBuckets.add(new DemandOrder(child, qty, childDue, childIdx));
+                    // 子桶继承父桶的优先级
+                    bomBuckets.add(new DemandOrder(child, qty, childDue, childIdx, parentBucket.getPriority()));
                 }
             }
         }
@@ -156,40 +187,15 @@ public class DataBuildService {
         bucketDemands.addAll(bomBuckets);
         bucketDemands = mergeByItemAndDueDate(bucketDemands, timeSlots);
 
-        // 9) 安全库存作为额外桶（放在时间窗最后一天）
-        if (!safetyStockMap.isEmpty()) {
-            LocalDate endDate = timeSlots.isEmpty() ? slotEnd : timeSlots.get(timeSlots.size() - 1).getDate();
-            int endIdx = lastIndexForDateOrClamp(timeSlots, endDate);
-            for (Map.Entry<Item, Integer> e : safetyStockMap.entrySet()) {
-                int safety = e.getValue() == null ? 0 : e.getValue();
-                if (safety > 0) {
-                    bucketDemands.add(new DemandOrder(e.getKey(), safety, endDate, endIdx));
-                }
-            }
-        }
-        // 再合并一下（以免安全库存和同日需求同日同物料叠加）
-        bucketDemands = mergeByItemAndDueDate(bucketDemands, timeSlots);
+        // 9) 修复：安全库存不再作为需求桶，而是作为约束在计分器中体现
+        // 安全库存会在GlobalInventoryIncrementalScoreCalculator中作为软约束：
+        // - 库存低于安全库存时会有惩罚
+        // - 库存高于安全库存时有持有成本
 
-        // 10) 初始库存按“先到期先抵扣”在各桶间分摊
-        List<DemandOrder> finalDemands = new ArrayList<>();
-        Map<Item, List<DemandOrder>> byItem = bucketDemands.stream()
-                .collect(Collectors.groupingBy(DemandOrder::getItem, LinkedHashMap::new, Collectors.toList()));
-        for (Map.Entry<Item, List<DemandOrder>> e : byItem.entrySet()) {
-            Item item = e.getKey();
-            List<DemandOrder> buckets = new ArrayList<>(e.getValue());
-            buckets.sort(Comparator.comparing(DemandOrder::getDueDate));
-            int onHand = initialOnHandMap.getOrDefault(item, 0);
-            for (DemandOrder b : buckets) {
-                if (onHand > 0) {
-                    int consume = Math.min(onHand, b.getQuantity());
-                    b.setQuantity(b.getQuantity() - consume);
-                    onHand -= consume;
-                }
-                if (b.getQuantity() > 0) {
-                    finalDemands.add(b);
-                }
-            }
-        }
+        // 10) 修复：不再在求解前抵扣初始库存
+        // 原因：应该让优化器根据全局约束自动决定如何使用初始库存，而非预先分配
+        // 初始库存会在增量计分器中作为"时间槽0之前的库存"自动参与计算
+        List<DemandOrder> finalDemands = new ArrayList<>(bucketDemands);
 
         // 11) Assignments
         List<ProductionAssignment> assignments = new ArrayList<>();
@@ -206,19 +212,42 @@ public class DataBuildService {
     }
 
     private  List<DemandOrder> mergeByItemAndDueDate(List<DemandOrder> list, List<TimeSlot> timeSlots) {
-        Map<String, Integer> agg = new LinkedHashMap<>();
+        Map<String, Map<String, Object>> agg = new LinkedHashMap<>();
         for (DemandOrder d : list) {
             String key = d.getItem().getCode() + "@" + d.getDueDate();
-            agg.merge(key, d.getQuantity(), Integer::sum);
+            agg.compute(key, (k, v) -> {
+                if (v == null) {
+                    v = new HashMap<>();
+                    v.put("item", d.getItem());
+                    v.put("qty", d.getQuantity());
+                    v.put("priority", d.getPriority());
+                } else {
+                    int existQty = (int) v.get("qty");
+                    int existPriority = (int) v.get("priority");
+                    v.put("qty", existQty + d.getQuantity());
+                    v.put("priority", Math.max(existPriority, d.getPriority()));
+                }
+                return v;
+            });
         }
         List<DemandOrder> result = new ArrayList<>();
-        for (Map.Entry<String, Integer> e : agg.entrySet()) {
-            String[] parts = e.getKey().split("@", 2);
-            String code = parts[0];
-            LocalDate due = LocalDate.parse(parts[1]);
-            Item item = list.stream().filter(x -> x.getItem().getCode().equals(code)).findFirst().get().getItem();
+        for (Map<String, Object> data : agg.values()) {
+            Item item = (Item) data.get("item");
+            int qty = (int) data.get("qty");
+            int priority = (int) data.get("priority");
+            LocalDate due = item.getLeadTime() >= 0 ? item.getLeadTime() > 0 ? 
+                LocalDate.now().plusDays(item.getLeadTime()) : LocalDate.now() : LocalDate.now();
+            
+            // 从原始列表找到正确的due date
+            for (DemandOrder d : list) {
+                if (d.getItem().equals(item)) {
+                    due = d.getDueDate();
+                    break;
+                }
+            }
+            
             int dueIdx = lastIndexForDateOrClamp(timeSlots, due);
-            result.add(new DemandOrder(item, e.getValue(), due, dueIdx));
+            result.add(new DemandOrder(item, qty, due, dueIdx, priority));
         }
         return result;
     }

@@ -11,10 +11,11 @@ public class ImportDTOs {
         public List<InventoryDTO> inventories;
         public List<DemandDTO> demands;
     }
-    public static class ItemDTO { public String code, name; public int leadTime; }
+    public static class ItemDTO { public String code, name, itemType; public int leadTime; }
     public static class BomArcDTO { public String parent, child; public int quantityPerParent; }
-    public static class RouterDTO { public String code, item; public int speedPerHour; }
+    public static class RouterDTO { public String code, item; public int speedPerHour, setupTimeHours, minBatchSize; }
     public static class LineDTO { public String code; public List<String> supportedRouters; }
     public static class InventoryDTO { public String item; public int initialOnHand, safetyStock; }
-    public static class DemandDTO { public String item; public int quantity; public String dueDate; }
+    public static class DemandDTO { public String item; public int quantity, priority; public String dueDate; }
+    public static class ConfigDTO { public int overTolerance; } // 超产容忍度（百分比），默认3
 }

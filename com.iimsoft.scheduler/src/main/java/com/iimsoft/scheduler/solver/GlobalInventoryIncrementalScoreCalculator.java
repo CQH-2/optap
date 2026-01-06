@@ -24,13 +24,17 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
 
     // 目标权重（可参数化）
     private static final int PROP_REWARD_WEIGHT      = 20;     // 比例达成（每桶基准1000分×权重）
-    private static final int COMPLETE_REWARD_BONUS   = 3000;   // 桶完全满足且不超3%时一次性奖励
-    private static final int UNMET_PENALTY_WEIGHT    = 2000;   // 未满足（件）惩罚
-    private static final int OVER_PENALTY_WEIGHT     = 2000;   // 超产（超过容忍阈值部分/件）惩罚
+    private static final int COMPLETE_REWARD_BONUS   = 3000;   // 桶完全满足且不超容忍度时一次性奖励
+    private static final int UNMET_PENALTY_WEIGHT    = 2000;   // 未满足（件）惩罚，乘以优先级
+    private static final int OVER_PENALTY_WEIGHT     = 2000;   // 超产（超过容忍阈值部分/件）惩罚，乘以优先级
 
     private static final int HOLDING_COST_WEIGHT     = 5;      // 库存持有成本：超安全库存的件×时槽×权重
+    private static final int SAFETY_SHORTAGE_WEIGHT  = 10;     // 低于安全库存的惩罚：(安全库存-实际库存)×时槽×权重
     private static final int CHANGEOVER_PENALTY      = 500;    // 相邻时槽工艺切换惩罚（同线）
     private static final int HARD_UNSUPPORTED_WEIGHT = 1_000_000; // 产线不支持工艺的硬惩罚
+    
+    // 参数化配置（可在运行时修改）
+    private int overTolerancePercent = 3; // 超产容忍度（百分比）
 
     // 工作数据
     private ProductionSchedule solution;
@@ -61,9 +65,14 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
     private int hardPenalty;       // 库存缺口累加（>0），最终取负作为硬分
     private int softBucketScore;   // 分桶净额（奖励-惩罚）
     private int holdingPenalty;    // 库存持有成本累加
+    private int safetyShortage;    // 安全库存短缺惩罚累加
     private int changeoverPenalty; // 工艺切换惩罚累加
     private int hardUnsupportedPenalty; // 产线不支持工艺的硬惩罚累计（>0）
-
+    
+    // 公开setter方法，允许运行时配置
+    public void setOverTolerancePercent(int percent) {
+        this.overTolerancePercent = Math.max(0, Math.min(100, percent));
+    }
 
     @Override
     public void resetWorkingSolution(ProductionSchedule solution) {
@@ -107,17 +116,17 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             producedPerSlot.get(r.getItem())[s] += r.getSpeedPerHour();
         }
 
-        // 计算在手曲线 + 硬分 + 库存持有成本
+        // 计算在手曲线 + 硬分 + 库存持有成本 + 安全库存短缺惩罚
         hardPenalty = 0;
         holdingPenalty = 0;
+        safetyShortage = 0;
         for (Item it : allItems) {
             int[] onHands = onHandPerSlot.get(it);
             int cur = initialOnHand.getOrDefault(it, 0);
             int safety = safetyStockMap.getOrDefault(it, 0);
 
             for (int s = 0; s < slotCount; s++) {
-                // 入库：本物料本槽产量
-                cur += producedPerSlot.get(it)[s];
+                // 修复：先消耗子件，再入库父件（符合实际生产逻辑）
                 // 消耗：本槽由父件产出导致该物料（若为子件）被消耗（child -> arcs）
                 int consumed = 0;
                 for (BomArc arc : childToArcs.getOrDefault(it, Collections.emptyList())) {
@@ -127,17 +136,28 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
                     }
                 }
                 cur -= consumed;
+                // 入库：本物料本槽产量
+                cur += producedPerSlot.get(it)[s];
 
                 onHands[s] = cur;
 
-                // 硬分：缺口累加
+                // 硬分：缺口累加（负库存）
                 if (cur < 0) {
                     hardPenalty += -cur;
                 }
-                // 库存持有成本：超过安全库存的部分
-                int over = Math.max(0, cur - safety);
-                if (over > 0) {
-                    holdingPenalty += over * HOLDING_COST_WEIGHT;
+                
+                // 软分：库存相关成本
+                if (cur >= 0) {
+                    // 低于安全库存的惩罚（cur < safety）
+                    int shortage = Math.max(0, safety - cur);
+                    if (shortage > 0) {
+                        safetyShortage += shortage * SAFETY_SHORTAGE_WEIGHT;
+                    }
+                    // 库存持有成本：超过安全库存的部分（cur > safety）
+                    int over = Math.max(0, cur - safety);
+                    if (over > 0) {
+                        holdingPenalty += over * HOLDING_COST_WEIGHT;
+                    }
                 }
             }
         }
@@ -157,7 +177,7 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
         softBucketScore = 0;
         for (List<DemandBucket> buckets : demandsByItem.values()) {
             for (DemandBucket db : buckets) {
-                softBucketScore += db.recomputeContribution();
+                softBucketScore += db.recomputeContribution(overTolerancePercent);
             }
         }
 
@@ -227,7 +247,7 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
     @Override
     public HardSoftScore calculateScore() {
         int hard = -hardPenalty - hardUnsupportedPenalty;
-        int soft = softBucketScore - holdingPenalty - changeoverPenalty;
+        int soft = softBucketScore - holdingPenalty - safetyShortage - changeoverPenalty;
         return HardSoftScore.of(hard, soft);
     }
 
@@ -257,12 +277,12 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             if (db.dueIndex >= slotIndex) {
                 softBucketScore -= db.cachedContribution;
                 db.producedCumAtDue += qtyDelta;
-                softBucketScore += db.recomputeContribution();
+                softBucketScore += db.recomputeContribution(overTolerancePercent);
             }
         }
     }
 
-    // 自 fromSlot 起，对 onHand[item][s] 统一 +delta，并精确调整“硬分缺口 + 持有成本”
+    // 自 fromSlot 起，对 onHand[item][s] 统一 +delta，并精确调整"硬分缺口 + 持有成本 + 安全库存短缺"
     private void applyOnHandLinearDelta(Item item, int fromSlot, int delta) {
         int[] onHands = onHandPerSlot.get(item);
         int safety = safetyStockMap.getOrDefault(item, 0);
@@ -271,15 +291,29 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             int oldVal = onHands[s];
             int newVal = oldVal + delta;
 
-            // 硬分：缺口变化
+            // 硬分：缺口变化（负库存）
             int oldDef = Math.max(0, -oldVal);
             int newDef = Math.max(0, -newVal);
             hardPenalty += (newDef - oldDef);
 
-            // 持有成本：超安全库存变化
-            int oldOver = Math.max(0, oldVal - safety);
-            int newOver = Math.max(0, newVal - safety);
-            holdingPenalty += (newOver - oldOver) * HOLDING_COST_WEIGHT;
+            // 软分：库存相关成本变化（仅当库存非负时）
+            if (oldVal >= 0) {
+                // 旧值的安全库存短缺
+                int oldShortage = Math.max(0, safety - oldVal);
+                // 旧值的持有成本
+                int oldOver = Math.max(0, oldVal - safety);
+                holdingPenalty -= oldOver * HOLDING_COST_WEIGHT;
+                safetyShortage -= oldShortage * SAFETY_SHORTAGE_WEIGHT;
+            }
+            
+            if (newVal >= 0) {
+                // 新值的安全库存短缺
+                int newShortage = Math.max(0, safety - newVal);
+                // 新值的持有成本
+                int newOver = Math.max(0, newVal - safety);
+                holdingPenalty += newOver * HOLDING_COST_WEIGHT;
+                safetyShortage += newShortage * SAFETY_SHORTAGE_WEIGHT;
+            }
 
             onHands[s] = newVal;
         }
@@ -350,8 +384,8 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             for (DemandOrder d : ds) {
                 int dueIdx = d.getDueTimeSlotIndex();
                 int producedCum = sumProducedUpTo(item, dueIdx);
-                DemandBucket db = new DemandBucket(item, d.getQuantity(), dueIdx, prevSum, producedCum);
-                db.recomputeContribution();
+                DemandBucket db = new DemandBucket(item, d.getQuantity(), dueIdx, prevSum, producedCum, d.getPriority());
+                db.recomputeContribution(overTolerancePercent);
                 buckets.add(db);
                 prevSum += d.getQuantity();
             }
@@ -377,45 +411,49 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
     }
 
     // ----------------- 分桶结构（含缓存） -----------------
+    // ----------------- 分桶结构（含缓存） -----------------
 
     private static class DemandBucket {
         final Item item;
         final int demand;
         final int dueIndex;
         final int prevDemandSum;    // 之前桶需求和（净额）
-        int producedCumAtDue;       // 截止到期时的“自身累计产量”
+        final int priority;         // 优先级（1-10，默认5）
+        int producedCumAtDue;       // 截止到期时的"自身累计产量"
         int cachedContribution;     // 该桶当前对软分的贡献
 
-        DemandBucket(Item item, int demand, int dueIndex, int prevDemandSum, int producedCumAtDue) {
+        DemandBucket(Item item, int demand, int dueIndex, int prevDemandSum, int producedCumAtDue, int priority) {
             this.item = item;
             this.demand = demand;
             this.dueIndex = dueIndex;
             this.prevDemandSum = prevDemandSum;
             this.producedCumAtDue = producedCumAtDue;
+            this.priority = priority > 0 ? priority : 5; // 默认优先级为5
         }
 
-        int recomputeContribution() {
+        int recomputeContribution(int overTolerancePercent) {
             // 可用量（净额）：自身累计产量 - 之前桶需求和
             int available = Math.max(0, producedCumAtDue - prevDemandSum);
 
-            // 比例奖励（封顶）
-            int propReward = demand <= 0 ? 0 : ((Math.min(available, demand) * 1000) / demand) * PROP_REWARD_WEIGHT;
+            // 比例奖励（封顶），乘以优先级权重
+            int propReward = demand <= 0 ? 0 : ((Math.min(available, demand) * 1000) / demand) * PROP_REWARD_WEIGHT * priority / 5;
 
-            // 完全满足奖励（不超3%）
-            int maxAcceptable = (int) Math.ceil(demand * 1.03);
-            int completeReward = (available >= demand && available <= maxAcceptable) ? COMPLETE_REWARD_BONUS : 0;
+            // 完全满足奖励（不超容忍度），乘以优先级权重
+            int maxAcceptable = (int) Math.ceil(demand * (1.0 + overTolerancePercent / 100.0));
+            int completeReward = (available >= demand && available <= maxAcceptable) ? (COMPLETE_REWARD_BONUS * priority / 5) : 0;
 
-            // 未满足惩罚
+            // 未满足惩罚，乘以优先级权重（高优先级未满足惩罚更重）
             int unmet = Math.max(0, demand - available);
-            int unmetPenalty = unmet * UNMET_PENALTY_WEIGHT;
+            int unmetPenalty = unmet * UNMET_PENALTY_WEIGHT * priority / 5;
 
-            // 超产惩罚（>=3%开始）
+            // 超产惩罚（超过容忍阈值部分），乘以优先级权重
             int over = Math.max(0, available - demand);
-            int tolerated = Math.max(0, (int) Math.ceil(demand * 0.03) - 1);
-            int overPenalty = Math.max(0, over - tolerated) * OVER_PENALTY_WEIGHT;
+            int tolerated = Math.max(0, (int) Math.ceil(demand * overTolerancePercent / 100.0) - 1);
+            int overPenalty = Math.max(0, over - tolerated) * OVER_PENALTY_WEIGHT * priority / 5;
 
             cachedContribution = propReward + completeReward - unmetPenalty - overPenalty;
             return cachedContribution;
         }
     }
+}
 }

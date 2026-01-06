@@ -287,15 +287,10 @@ public class App {
         for (TimeSlot ts : orderedSlots) {
             int idx = ts.getIndex();
 
-            // 本槽产出：所有物料直接入库
             Map<Item, Integer> producedThisSlot = producedAtSlot.getOrDefault(idx, Map.of());
-            for (Map.Entry<Item, Integer> e : producedThisSlot.entrySet()) {
-                if (e.getValue() != 0) {
-                    currentOnHand.merge(e.getKey(), e.getValue(), Integer::sum);
-                }
-            }
-
-            // 子件消耗：由父件产量驱动（同槽内先入库再消耗）
+            
+            // 修复：先消耗子件，再入库父件（符合实际生产逻辑）
+            // 子件消耗：由父件产量驱动
             Map<Item, Integer> consumedChild = new HashMap<>();
             for (BomArc arc : arcs) {
                 int parentQty = producedThisSlot.getOrDefault(arc.getParent(), 0);
@@ -305,6 +300,13 @@ public class App {
             }
             for (Map.Entry<Item, Integer> e : consumedChild.entrySet()) {
                 currentOnHand.merge(e.getKey(), -e.getValue(), Integer::sum);
+            }
+            
+            // 本槽产出：所有物料入库
+            for (Map.Entry<Item, Integer> e : producedThisSlot.entrySet()) {
+                if (e.getValue() != 0) {
+                    currentOnHand.merge(e.getKey(), e.getValue(), Integer::sum);
+                }
             }
 
             // 记录该槽结束时的全局库存

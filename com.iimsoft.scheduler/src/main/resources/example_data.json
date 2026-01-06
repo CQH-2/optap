@@ -1,17 +1,17 @@
 {
   "items": [
-    { "code": "A", "name": "总成A", "leadTime": 0 },
-    { "code": "B", "name": "零件B", "leadTime": 1 },
-    { "code": "C", "name": "零件C", "leadTime": 0 }
+    { "code": "A", "name": "总成A", "itemType": "MANUFACTURED", "leadTime": 0 },
+    { "code": "B", "name": "零件B", "itemType": "MANUFACTURED", "leadTime": 1 },
+    { "code": "C", "name": "零件C", "itemType": "PURCHASED", "leadTime": 1 }
   ],
   "bomArcs": [
     { "parent": "A", "child": "B", "quantityPerParent": 2 },
     { "parent": "A", "child": "C", "quantityPerParent": 1 }
   ],
   "routers": [
-    { "code": "rA", "item": "A", "speedPerHour": 20 },
-    { "code": "rB", "item": "B", "speedPerHour": 30 },
-    { "code": "rC", "item": "C", "speedPerHour": 25 }
+    { "code": "rA", "item": "A", "speedPerHour": 20, "setupTimeHours": 0, "minBatchSize": 0 },
+    { "code": "rB", "item": "B", "speedPerHour": 30, "setupTimeHours": 1, "minBatchSize": 0 },
+    { "code": "rC", "item": "C", "speedPerHour": 25, "setupTimeHours": 0, "minBatchSize": 10 }
   ],
   "lines": [
     { "code": "L1", "supportedRouters": ["rA", "rB", "rC"] }
@@ -22,6 +22,7 @@
     { "item": "C", "initialOnHand": 20, "safetyStock": 5 }
   ],
   "demands": [
-    { "item": "A", "quantity": 100, "dueDate": "2025-10-28" }
+    { "item": "A", "quantity": 100, "priority": 8, "dueDate": "2025-10-28" },
+    { "item": "A", "quantity": 50, "priority": 5, "dueDate": "2025-11-10" }
   ]
 }
