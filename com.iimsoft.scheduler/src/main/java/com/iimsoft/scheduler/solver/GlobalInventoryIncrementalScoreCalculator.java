@@ -435,25 +435,28 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             // 可用量（净额）：自身累计产量 - 之前桶需求和
             int available = Math.max(0, producedCumAtDue - prevDemandSum);
 
+            // 优先级权重：对数曲线，范围 0.5 - 2.05
+            // priority=1: 0.5, priority=5: 1.1, priority=10: 1.85
+            double priorityWeight = 0.5 + (priority - 1) * 0.15;
+
             // 比例奖励（封顶），乘以优先级权重
-            int propReward = demand <= 0 ? 0 : ((Math.min(available, demand) * 1000) / demand) * PROP_REWARD_WEIGHT * priority / 5;
+            int propReward = demand <= 0 ? 0 : (int)(((Math.min(available, demand) * 1000) / demand) * PROP_REWARD_WEIGHT * priorityWeight);
 
             // 完全满足奖励（不超容忍度），乘以优先级权重
             int maxAcceptable = (int) Math.ceil(demand * (1.0 + overTolerancePercent / 100.0));
-            int completeReward = (available >= demand && available <= maxAcceptable) ? (COMPLETE_REWARD_BONUS * priority / 5) : 0;
+            int completeReward = (available >= demand && available <= maxAcceptable) ? (int)(COMPLETE_REWARD_BONUS * priorityWeight) : 0;
 
             // 未满足惩罚，乘以优先级权重（高优先级未满足惩罚更重）
             int unmet = Math.max(0, demand - available);
-            int unmetPenalty = unmet * UNMET_PENALTY_WEIGHT * priority / 5;
+            int unmetPenalty = (int)(unmet * UNMET_PENALTY_WEIGHT * priorityWeight);
 
             // 超产惩罚（超过容忍阈值部分），乘以优先级权重
             int over = Math.max(0, available - demand);
             int tolerated = Math.max(0, (int) Math.ceil(demand * overTolerancePercent / 100.0) - 1);
-            int overPenalty = Math.max(0, over - tolerated) * OVER_PENALTY_WEIGHT * priority / 5;
+            int overPenalty = (int)(Math.max(0, over - tolerated) * OVER_PENALTY_WEIGHT * priorityWeight);
 
             cachedContribution = propReward + completeReward - unmetPenalty - overPenalty;
             return cachedContribution;
         }
     }
-}
 }

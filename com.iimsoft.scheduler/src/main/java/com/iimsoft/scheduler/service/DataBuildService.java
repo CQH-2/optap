@@ -48,6 +48,32 @@ public class DataBuildService {
         return buildSchedule(dto, slotStart, slotEnd, workStart, workEnd);
     }
 
+    /**
+     * 指定生产开始日期，自动计算排产时间窗口
+     * 排产时间范围：从 productionStartDate 到最晚需求到期日期
+     * @param jsonPath 数据文件路径
+     * @param productionStartDate 生产开始日期
+     * @param workStart 班次开始小时（如 8）
+     * @param workEnd 班次结束小时（如 19）
+     * @return 生产计划
+     */
+    public ProductionSchedule buildScheduleWithProductionStartDate(String jsonPath,
+                                                                   LocalDate productionStartDate,
+                                                                   int workStart, int workEnd) throws Exception {
+        ImportDTOs.Root dto = mapper.readValue(new File(jsonPath), ImportDTOs.Root.class);
+        
+        // 计算最晚需求到期日期
+        LocalDate latestDue = dto.demands == null || dto.demands.isEmpty()
+                ? LocalDate.now()
+                : dto.demands.stream().map(d -> LocalDate.parse(d.dueDate)).max(LocalDate::compareTo).orElse(LocalDate.now());
+        
+        // 排产时间范围：从指定的生产开始日期到最晚需求到期日期
+        LocalDate slotStart = productionStartDate;
+        LocalDate slotEnd = latestDue;
+        
+        return buildSchedule(dto, slotStart, slotEnd, workStart, workEnd);
+    }
+
     public ProductionSchedule buildSchedule(ImportDTOs.Root dto,
                                             LocalDate slotStart, LocalDate slotEnd,
                                             int workStart, int workEnd) {
