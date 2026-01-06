@@ -62,16 +62,16 @@ public class DataBuildService {
                                                                    LocalDate productionStartDate,
                                                                    int workStart, int workEnd) throws Exception {
         ImportDTOs.Root dto = mapper.readValue(new File(jsonPath), ImportDTOs.Root.class);
-        
+
         // 计算最晚需求到期日期
         LocalDate latestDue = dto.demands == null || dto.demands.isEmpty()
                 ? LocalDate.now()
                 : dto.demands.stream().map(d -> LocalDate.parse(d.dueDate)).max(LocalDate::compareTo).orElse(LocalDate.now());
-        
+
         // 排产时间范围：从指定的生产开始日期到最晚需求到期日期
         LocalDate slotStart = productionStartDate;
         LocalDate slotEnd = latestDue;
-        
+
         return buildSchedule(dto, slotStart, slotEnd, workStart, workEnd);
     }
 
@@ -82,7 +82,7 @@ public class DataBuildService {
      * 2. 计算白班产能（考虑工艺速度约束）
      * 3. 如果白班产能不足以满足需求（考虑90%产能利用率），自动启用夜班
      * 4. 从需求时间倒排到指定开始日期
-     * 
+     *
      * @param jsonPath 数据文件路径
      * @param productionStartDate 生产开始日期
      * @return 生产计划（自动包含白班/夜班时间槽）
@@ -90,7 +90,7 @@ public class DataBuildService {
     public ProductionSchedule buildScheduleWithShiftPlanning(String jsonPath,
                                                              LocalDate productionStartDate) throws Exception {
         ImportDTOs.Root dto = mapper.readValue(new File(jsonPath), ImportDTOs.Root.class);
-        
+
         // 1. 构建Item映射和BOM关系
         Map<String, Item> itemMap = new LinkedHashMap<>();
         if (dto.items != null) {
@@ -104,7 +104,7 @@ public class DataBuildService {
                 itemMap.put(it.code, new Item(it.code, it.name, it.leadTime, type));
             }
         }
-        
+
         // BOM映射
         Map<String, List<ImportDTOs.BomArcDTO>> bomMap = new HashMap<>();
         if (dto.bomArcs != null) {
@@ -112,7 +112,7 @@ public class DataBuildService {
                 bomMap.computeIfAbsent(arc.parent, k -> new ArrayList<>()).add(arc);
             }
         }
-        
+
         // 2. 计算BOM展开后的总需求量
         Map<String, Integer> totalDemandByItem = new HashMap<>();
         if (dto.demands != null) {
@@ -120,23 +120,23 @@ public class DataBuildService {
                 expandBomDemand(demand.item, demand.quantity, totalDemandByItem, bomMap);
             }
         }
-        
+
         int totalDemand = totalDemandByItem.values().stream().mapToInt(Integer::intValue).sum();
-        int finalProductDemand = dto.demands == null ? 0 : 
-            dto.demands.stream().mapToInt(d -> d.quantity).sum();
-        
+        int finalProductDemand = dto.demands == null ? 0 :
+                dto.demands.stream().mapToInt(d -> d.quantity).sum();
+
         // 3. 计算最晚需求到期日期
         LocalDate latestDue = dto.demands == null || dto.demands.isEmpty()
                 ? LocalDate.now()
                 : dto.demands.stream()
-                    .map(d -> LocalDate.parse(d.dueDate))
-                    .max(LocalDate::compareTo)
-                    .orElse(LocalDate.now());
-        
+                .map(d -> LocalDate.parse(d.dueDate))
+                .max(LocalDate::compareTo)
+                .orElse(LocalDate.now());
+
         // 4. 计算白班产能（考虑工艺瓶颈）
         long daysBetween = ChronoUnit.DAYS.between(productionStartDate, latestDue) + 1;
         int dayShiftHours = Shift.DAY.getWorkingHours(); // 12小时
-        
+
         // 工艺速度映射（按物料分组，取最小速度作为瓶颈）
         Map<String, Integer> itemSpeedMap = new HashMap<>();
         if (dto.routers != null) {
@@ -144,10 +144,10 @@ public class DataBuildService {
                 itemSpeedMap.merge(r.item, r.speedPerHour, Math::min);
             }
         }
-        
+
         // 产线数量
         int lineCount = dto.lines == null ? 1 : dto.lines.size();
-        
+
         // 计算各物料的理论产能并找出瓶颈
         long minCapacityRatio = Long.MAX_VALUE;
         String bottleneckItem = "";
@@ -164,38 +164,38 @@ public class DataBuildService {
                 }
             }
         }
-        
+
         // 白班总产能（用平均速度估算）
         int avgSpeed = dto.routers == null || dto.routers.isEmpty() ? 20 :
-            dto.routers.stream().mapToInt(r -> r.speedPerHour).sum() / dto.routers.size();
+                dto.routers.stream().mapToInt(r -> r.speedPerHour).sum() / dto.routers.size();
         long dayShiftCapacity = daysBetween * dayShiftHours * avgSpeed * lineCount;
-        
+
         // 5. 判断是否需要夜班
         // 策略：如果任何物料的需求超过白班产能的90%，或产能利用率>90%，则启用夜班
         boolean needNightShift = (totalDemand > dayShiftCapacity * 0.90) || (minCapacityRatio < 110);
-        
+
         System.out.println("===== 产能评估 =====");
         System.out.printf("成品需求量: %d 件%n", finalProductDemand);
         System.out.printf("总需求量(含BOM): %d 件%n", totalDemand);
         System.out.printf("生产周期: %d 天 (从 %s 到 %s)%n", daysBetween, productionStartDate, latestDue);
-        System.out.printf("白班产能: %d 件 (%d天 × %d小时 × %d件/时 × %d产线)%n", 
-            dayShiftCapacity, daysBetween, dayShiftHours, avgSpeed, lineCount);
+        System.out.printf("白班产能: %d 件 (%d天 × %d小时 × %d件/时 × %d产线)%n",
+                dayShiftCapacity, daysBetween, dayShiftHours, avgSpeed, lineCount);
         System.out.printf("产能利用率: %.1f%%%n", (totalDemand * 100.0 / dayShiftCapacity));
         if (!bottleneckItem.isEmpty()) {
             System.out.printf("瓶颈物料: %s (产能裕度 %d%%)%n", bottleneckItem, minCapacityRatio);
         }
         System.out.printf("是否启用夜班: %s%s%n", needNightShift ? "是" : "否",
-            needNightShift ? " (需求超过白班产能90%或存在瓶颈)" : "");
+                needNightShift ? " (需求超过白班产能90%或存在瓶颈)" : "");
         System.out.println("==================");
-        
+
         // 6. 生成时间槽（带班次信息）
         List<TimeSlot> timeSlots = generateTimeSlotsWithShifts(
-            productionStartDate, latestDue, needNightShift);
-        
+                productionStartDate, latestDue, needNightShift);
+
         // 7. 构建排产计划
         return buildScheduleWithTimeSlots(dto, productionStartDate, latestDue, timeSlots);
     }
-    
+
     /**
      * 递归展开BOM需求
      * @param itemCode 物料代码
@@ -203,12 +203,12 @@ public class DataBuildService {
      * @param totalDemand 累计需求映射
      * @param bomMap BOM关系映射
      */
-    private void expandBomDemand(String itemCode, int quantity, 
-                                Map<String, Integer> totalDemand,
-                                Map<String, List<ImportDTOs.BomArcDTO>> bomMap) {
+    private void expandBomDemand(String itemCode, int quantity,
+                                 Map<String, Integer> totalDemand,
+                                 Map<String, List<ImportDTOs.BomArcDTO>> bomMap) {
         // 累加当前物料需求
         totalDemand.merge(itemCode, quantity, Integer::sum);
-        
+
         // 递归展开子件需求
         List<ImportDTOs.BomArcDTO> children = bomMap.get(itemCode);
         if (children != null) {
@@ -223,17 +223,17 @@ public class DataBuildService {
      * 白班：8:00-19:00
      * 夜班：20:00-次日7:00
      */
-    private List<TimeSlot> generateTimeSlotsWithShifts(LocalDate start, LocalDate end, 
+    private List<TimeSlot> generateTimeSlotsWithShifts(LocalDate start, LocalDate end,
                                                        boolean includeNightShift) {
         List<TimeSlot> slots = new ArrayList<>();
         int idx = 0;
-        
+
         for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
             // 白班：8:00-19:00
             for (int h = 8; h <= 19; h++) {
                 slots.add(new TimeSlot(d, h, idx++, Shift.DAY));
             }
-            
+
             // 夜班：20:00-次日7:00（如果需要）
             if (includeNightShift) {
                 // 当天 20:00-23:00
@@ -249,10 +249,10 @@ public class DataBuildService {
                 }
             }
         }
-        
+
         return slots;
     }
-    
+
     /**
      * 使用指定的时间槽构建排产计划
      */
@@ -300,7 +300,7 @@ public class DataBuildService {
                 }
             }
         }
-        
+
         // 3.1) Routers（第二遍：设置前置工序依赖关系）
         if (dto.routers != null) {
             for (ImportDTOs.RouterDTO r : dto.routers) {
@@ -315,7 +315,7 @@ public class DataBuildService {
                 }
             }
         }
-        
+
         List<Router> routers = new ArrayList<>(routerMap.values());
 
         // 4) Lines
@@ -348,13 +348,13 @@ public class DataBuildService {
         List<DemandOrder> bucketDemands = new ArrayList<>();
         if (dto.demands != null) {
             Map<String, Map<String, Object>> demandMap = new LinkedHashMap<>();
-            
+
             for (ImportDTOs.DemandDTO dmd : dto.demands) {
                 Item it = itemMap.get(dmd.item);
                 if (it == null) continue;
                 LocalDate dueDate = LocalDate.parse(dmd.dueDate);
                 String key = it.getCode() + "@" + dueDate;
-                
+
                 int priority = dmd.priority > 0 ? dmd.priority : 5;
                 demandMap.compute(key, (k, v) -> {
                     if (v == null) {
@@ -372,7 +372,7 @@ public class DataBuildService {
                     return v;
                 });
             }
-            
+
             for (Map<String, Object> demand : demandMap.values()) {
                 Item it = (Item) demand.get("item");
                 LocalDate dueDate = (LocalDate) demand.get("dueDate");
@@ -386,12 +386,12 @@ public class DataBuildService {
         // 调试输出
         System.out.printf("✓ 原始需求数量: %d%n", bucketDemands.size());
         for (DemandOrder d : bucketDemands) {
-            System.out.printf("  - %s %d件，截止 %s，优先级 %d%n", 
-                d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getPriority());
+            System.out.printf("  - %s %d件，截止 %s，优先级 %d%n",
+                    d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getPriority());
         }
 
         // 7) BOM分解：为每个原始需求生成派生需求（用于完成BOM链）
-        // 派生需求优先级设为0，标记为系统自动生成（不显示给用户）
+        // 派生需求继承父需求的优先级，确保高优先级成品的子件也获得高优先级
         List<DemandOrder> bomBuckets = new ArrayList<>();
         for (DemandOrder parentBucket : new ArrayList<>(bucketDemands)) {
             for (BomArc arc : bomArcs) {
@@ -402,8 +402,8 @@ public class DataBuildService {
                     if (childDue.isBefore(slotStart)) childDue = slotStart;
                     if (childDue.isAfter(slotEnd)) childDue = slotEnd;
                     int childIdx = lastIndexForDateOrClamp(timeSlots, childDue);
-                    // BOM派生需求优先级设为0，避免干扰优化器决策
-                    bomBuckets.add(new DemandOrder(child, qty, childDue, childIdx, 0));
+                    // 子件继承父件的优先级，保证整个BOM链的优先级一致性
+                    bomBuckets.add(new DemandOrder(child, qty, childDue, childIdx, parentBucket.getPriority()));
                 }
             }
         }
@@ -469,7 +469,7 @@ public class DataBuildService {
                 }
             }
         }
-        
+
         // 3.1) Routers（第二遍：设置前置工序依赖关系）
         if (dto.routers != null) {
             for (ImportDTOs.RouterDTO r : dto.routers) {
@@ -484,7 +484,7 @@ public class DataBuildService {
                 }
             }
         }
-        
+
         List<Router> routers = new ArrayList<>(routerMap.values());
 
         // 4) Lines
@@ -525,13 +525,13 @@ public class DataBuildService {
         if (dto.demands != null) {
             // 需求优先级映射：key=(item+dueDate), value=(priority, qty)
             Map<String, Map<String, Object>> demandMap = new LinkedHashMap<>();
-            
+
             for (ImportDTOs.DemandDTO dmd : dto.demands) {
                 Item it = itemMap.get(dmd.item);
                 if (it == null) continue;
                 LocalDate dueDate = LocalDate.parse(dmd.dueDate);
                 String key = it.getCode() + "@" + dueDate;
-                
+
                 // 如果同一桶有多个需求，取最高优先级（最大值）
                 int priority = dmd.priority > 0 ? dmd.priority : 5;
                 demandMap.compute(key, (k, v) -> {
@@ -550,7 +550,7 @@ public class DataBuildService {
                     return v;
                 });
             }
-            
+
             for (Map<String, Object> demand : demandMap.values()) {
                 Item it = (Item) demand.get("item");
                 LocalDate dueDate = (LocalDate) demand.get("dueDate");
@@ -629,9 +629,9 @@ public class DataBuildService {
             Item item = (Item) data.get("item");
             int qty = (int) data.get("qty");
             int priority = (int) data.get("priority");
-            LocalDate due = item.getLeadTime() >= 0 ? item.getLeadTime() > 0 ? 
-                LocalDate.now().plusDays(item.getLeadTime()) : LocalDate.now() : LocalDate.now();
-            
+            LocalDate due = item.getLeadTime() >= 0 ? item.getLeadTime() > 0 ?
+                    LocalDate.now().plusDays(item.getLeadTime()) : LocalDate.now() : LocalDate.now();
+
             // 从原始列表找到正确的due date
             for (DemandOrder d : list) {
                 if (d.getItem().equals(item)) {
@@ -639,7 +639,7 @@ public class DataBuildService {
                     break;
                 }
             }
-            
+
             int dueIdx = lastIndexForDateOrClamp(timeSlots, due);
             result.add(new DemandOrder(item, qty, due, dueIdx, priority));
         }
