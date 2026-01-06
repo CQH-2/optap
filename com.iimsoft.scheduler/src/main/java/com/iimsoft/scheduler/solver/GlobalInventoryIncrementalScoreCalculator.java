@@ -24,19 +24,22 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
 
     // 目标权重（可参数化）
     private static final int PROP_REWARD_WEIGHT      = 20;     // 比例达成（每桶基准1000分×权重）
-    private static final int COMPLETE_REWARD_BONUS   = 3000;   // 桶完全满足且不超容忍度时一次性奖励
-    private static final int UNMET_PENALTY_WEIGHT    = 2000;   // 未满足（件）惩罚，乘以优先级
-    private static final int OVER_PENALTY_WEIGHT     = 2000;   // 超产（超过容忍阈值部分/件）惩罚，乘以优先级
+    private static final int COMPLETE_REWARD_BONUS   = 5000;   // 桶完全满足且不超容忍度时一次性奖励（提高奖励鼓励精确满足）
+    private static final int UNMET_PENALTY_WEIGHT    = 3000;   // 未满足（件）惩罚，乘以优先级（提高未满足惩罚）
+    private static final int OVER_PENALTY_WEIGHT     = 5000;   // 超产（超过容忍阈值部分/件）惩罚，乘以优先级（大幅提高超产惩罚）
 
-    private static final int HOLDING_COST_WEIGHT     = 5;      // 库存持有成本：超安全库存的件×时槽×权重
+    private static final int HOLDING_COST_WEIGHT     = 3;      // 库存持有成本：超安全库存的件×时槽×权重（降低以允许适度库存）
     private static final int SAFETY_SHORTAGE_WEIGHT  = 10;     // 低于安全库存的惩罚：(安全库存-实际库存)×时槽×权重
-    private static final int CHANGEOVER_PENALTY      = 500;    // 相邻时槽工艺切换惩罚（同线）
+    private static final int CHANGEOVER_PENALTY      = 1500;   // 相邻时槽工艺切换惩罚（同线）（提高3倍，鼓励批量生产）
+    private static final int BATCH_PRODUCTION_REWARD = 200;    // 连续生产同一工艺的奖励（每对相邻时槽）
     private static final int HARD_UNSUPPORTED_WEIGHT = 1_000_000; // 产线不支持工艺的硬惩罚
     private static final int NIGHT_SHIFT_PENALTY     = 100;    // 夜班额外成本惩罚（每件）
     private static final int HARD_PREDECESSOR_VIOLATION = 1_000_000; // 工序依赖违反的硬惩罚
+    private static final int HARD_UNMET_DEMAND_WEIGHT = 10;    // 未满足需求的硬约束权重（每件）
+    private static final int HARD_BOM_SHORTAGE_WEIGHT = 10;    // BOM消耗不足的硬约束权重（每件）
     
     // 参数化配置（可在运行时修改）
-    private int overTolerancePercent = 3; // 超产容忍度（百分比）
+    private int overTolerancePercent = 1; // 超产容忍度（百分比）（降低到1%以减少超产）
 
     // 工作数据
     private ProductionSchedule solution;
@@ -69,9 +72,12 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
     private int holdingPenalty;    // 库存持有成本累加
     private int safetyShortage;    // 安全库存短缺惩罚累加
     private int changeoverPenalty; // 工艺切换惩罚累加
+    private int batchProductionReward; // 批量生产奖励累加（连续相同工艺）
     private int hardUnsupportedPenalty; // 产线不支持工艺的硬惩罚累计（>0）
     private int nightShiftCost;    // 夜班额外成本累计
     private int predecessorViolations; // 工序依赖违反次数累计（>0）
+    private int hardUnmetDemand;   // 未满足需求数累计（硬约束）（>0）
+    private int hardBomShortage;   // BOM消耗超产量硬约束（>0）
     
     // 公开setter方法，允许运行时配置
     public void setOverTolerancePercent(int percent) {
@@ -166,13 +172,15 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             }
         }
 
-        // 邻接索引 & 初始切换惩罚
+        // 邻接索引 & 初始切换惩罚/批量奖励
         buildLineSlotIndex();
         changeoverPenalty = 0;
+        batchProductionReward = 0;
         for (Map.Entry<ProductionLine, ProductionAssignment[]> e : lineSlotIndex.entrySet()) {
             ProductionAssignment[] arr = e.getValue();
             for (int s = 0; s + 1 < slotCount; s++) {
                 changeoverPenalty += pairContribution(arr[s], arr[s + 1]);
+                batchProductionReward += batchReward(arr[s], arr[s + 1]);
             }
         }
 
@@ -206,6 +214,34 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
         // 工序依赖约束：检查前置工序完成时间
         predecessorViolations = 0;
         predecessorViolations = calculatePredecessorViolations(solution);
+        
+        // 需求满足硬约束：计算未满足需求数
+        hardUnmetDemand = 0;
+        for (List<DemandBucket> buckets : demandsByItem.values()) {
+            for (DemandBucket db : buckets) {
+                int available = Math.max(0, db.producedCumAtDue - db.prevDemandSum);
+                int unmet = Math.max(0, db.demand - available);
+                hardUnmetDemand += unmet;
+            }
+        }
+        
+        // BOM消耗硬约束：对每个子件，检查消耗量是否超过生产量+初始库存
+        hardBomShortage = 0;
+        for (Item child : childToArcs.keySet()) {
+            int totalConsumed = 0;
+            for (int s = 0; s < slotCount; s++) {
+                for (BomArc arc : childToArcs.get(child)) {
+                    totalConsumed += producedPerSlot.get(arc.getParent())[s] * arc.getQuantityPerParent();
+                }
+            }
+            int totalProduced = 0;
+            for (int s = 0; s < slotCount; s++) {
+                totalProduced += producedPerSlot.get(child)[s];
+            }
+            int initialStock = initialOnHand.getOrDefault(child, 0);
+            int shortage = Math.max(0, totalConsumed - totalProduced - initialStock);
+            hardBomShortage += shortage;
+        }
     }
 
     @Override public void beforeEntityAdded(Object entity) { }
@@ -279,8 +315,26 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
 
     @Override
     public HardSoftScore calculateScore() {
-        int hard = -hardPenalty - hardUnsupportedPenalty - (predecessorViolations * HARD_PREDECESSOR_VIOLATION);
-        int soft = softBucketScore - holdingPenalty - safetyShortage - changeoverPenalty - nightShiftCost;
+        // 重新计算BOM消耗硬约束（因为增量更新复杂）
+        hardBomShortage = 0;
+        for (Item child : childToArcs.keySet()) {
+            int totalConsumed = 0;
+            for (int s = 0; s < slotCount; s++) {
+                for (BomArc arc : childToArcs.get(child)) {
+                    totalConsumed += producedPerSlot.get(arc.getParent())[s] * arc.getQuantityPerParent();
+                }
+            }
+            int totalProduced = 0;
+            for (int s = 0; s < slotCount; s++) {
+                totalProduced += producedPerSlot.get(child)[s];
+            }
+            int initialStock = initialOnHand.getOrDefault(child, 0);
+            int shortage = Math.max(0, totalConsumed - totalProduced - initialStock);
+            hardBomShortage += shortage;
+        }
+        
+        int hard = -hardPenalty - hardUnsupportedPenalty - (predecessorViolations * HARD_PREDECESSOR_VIOLATION) - (hardUnmetDemand * 100) - (hardBomShortage * 100);
+        int soft = softBucketScore - holdingPenalty - safetyShortage - changeoverPenalty + batchProductionReward - nightShiftCost;
         return HardSoftScore.of(hard, soft);
     }
 
@@ -308,8 +362,17 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
         List<DemandBucket> buckets = demandsByItem.getOrDefault(item, Collections.emptyList());
         for (DemandBucket db : buckets) {
             if (db.dueIndex >= slotIndex) {
+                // 更新硬约束：计算未满足数变化
+                int prevAvailable = Math.max(0, db.producedCumAtDue - db.prevDemandSum);
+                int prevUnmet = Math.max(0, db.demand - prevAvailable);
+                
                 softBucketScore -= db.cachedContribution;
                 db.producedCumAtDue += qtyDelta;
+                
+                int newAvailable = Math.max(0, db.producedCumAtDue - db.prevDemandSum);
+                int newUnmet = Math.max(0, db.demand - newAvailable);
+                hardUnmetDemand += (newUnmet - prevUnmet);
+                
                 softBucketScore += db.recomputeContribution(overTolerancePercent);
             }
         }
@@ -371,7 +434,7 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
         }
     }
 
-    // 根据当前 a 的位置，更新两对相邻对 (s-1,s) 与 (s,s+1) 的切换惩罚，sign = +1 添加，-1 移除
+    // 根据当前 a 的位置，更新两对相邻对 (s-1,s) 与 (s,s+1) 的切换惩罚和批量奖励，sign = +1 添加，-1 移除
     private void adjustNeighborPairs(ProductionAssignment a, int sign) {
         ProductionAssignment[] arr = lineSlotIndex.get(a.getLine());
         if (arr == null) return;
@@ -379,9 +442,11 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
 
         if (s - 1 >= 0) {
             changeoverPenalty += sign * pairContribution(arr[s - 1], arr[s]);
+            batchProductionReward += sign * batchReward(arr[s - 1], arr[s]);
         }
         if (s + 1 < slotCount) {
             changeoverPenalty += sign * pairContribution(arr[s], arr[s + 1]);
+            batchProductionReward += sign * batchReward(arr[s], arr[s + 1]);
         }
     }
 
@@ -392,7 +457,15 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
         Router r2 = a2.getRouter();
         if (r1 == null || r2 == null) return 0;
         return (!Objects.equals(r1, r2)) ? CHANGEOVER_PENALTY : 0;
-        // 如需“相同工艺奖励”，可改为：return Objects.equals(r1, r2) ? -SAME_ROUTER_REWARD : 0;
+    }
+    
+    // 批量生产奖励：相同工艺连续生产给予奖励
+    private int batchReward(ProductionAssignment a1, ProductionAssignment a2) {
+        if (a1 == null || a2 == null) return 0;
+        Router r1 = a1.getRouter();
+        Router r2 = a2.getRouter();
+        if (r1 == null || r2 == null) return 0;
+        return Objects.equals(r1, r2) ? BATCH_PRODUCTION_REWARD : 0;
     }
 
     // ----------------- 分桶缓存 -----------------
@@ -468,9 +541,9 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             // 可用量（净额）：自身累计产量 - 之前桶需求和
             int available = Math.max(0, producedCumAtDue - prevDemandSum);
 
-            // 优先级权重：对数曲线，范围 0.5 - 2.05
-            // priority=1: 0.5, priority=5: 1.1, priority=10: 1.85
-            double priorityWeight = 0.5 + (priority - 1) * 0.15;
+            // 优先级权重：指数曲线，使高优先级影响更显著
+            // priority=1: 0.5, priority=5: 1.6, priority=10: 3.0
+            double priorityWeight = 0.5 + (priority - 1) * 0.28;
 
             // 比例奖励（封顶），乘以优先级权重
             int propReward = demand <= 0 ? 0 : (int)(((Math.min(available, demand) * 1000) / demand) * PROP_REWARD_WEIGHT * priorityWeight);

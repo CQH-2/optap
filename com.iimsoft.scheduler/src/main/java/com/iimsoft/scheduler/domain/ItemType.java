@@ -19,5 +19,16 @@ public enum ItemType {
     /**
      * 通用类型：可以是自制或采购
      */
-    GENERIC
+    GENERIC,
+    
+    /**
+     * 成品：最终产品，直接面向客户需求
+     * 成品的生产应该获得最高优先级和额外奖励
+     */
+    FINISHED_PRODUCT,
+    
+    /**
+     * 原材料：生产的起始物料
+     */
+    RAW_MATERIAL
 }

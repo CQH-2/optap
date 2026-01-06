@@ -78,9 +78,9 @@ public class DataBuildService {
     /**
      * 智能排产：根据产能自动判断是否需要夜班
      * 排产逻辑：
-     * 1. 计算总需求量
-     * 2. 计算白班产能
-     * 3. 如果白班产能不足（<85%），自动启用夜班
+     * 1. 计算BOM展开后的总需求量（包含所有层级的物料）
+     * 2. 计算白班产能（考虑工艺速度约束）
+     * 3. 如果白班产能不足以满足需求（考虑90%产能利用率），自动启用夜班
      * 4. 从需求时间倒排到指定开始日期
      * 
      * @param jsonPath 数据文件路径
@@ -91,11 +91,41 @@ public class DataBuildService {
                                                              LocalDate productionStartDate) throws Exception {
         ImportDTOs.Root dto = mapper.readValue(new File(jsonPath), ImportDTOs.Root.class);
         
-        // 1. 计算总需求量
-        int totalDemand = dto.demands == null ? 0 : 
+        // 1. 构建Item映射和BOM关系
+        Map<String, Item> itemMap = new LinkedHashMap<>();
+        if (dto.items != null) {
+            for (ImportDTOs.ItemDTO it : dto.items) {
+                ItemType type = ItemType.GENERIC;
+                if (it.itemType != null) {
+                    try {
+                        type = ItemType.valueOf(it.itemType.toUpperCase());
+                    } catch (IllegalArgumentException e) {}
+                }
+                itemMap.put(it.code, new Item(it.code, it.name, it.leadTime, type));
+            }
+        }
+        
+        // BOM映射
+        Map<String, List<ImportDTOs.BomArcDTO>> bomMap = new HashMap<>();
+        if (dto.bomArcs != null) {
+            for (ImportDTOs.BomArcDTO arc : dto.bomArcs) {
+                bomMap.computeIfAbsent(arc.parent, k -> new ArrayList<>()).add(arc);
+            }
+        }
+        
+        // 2. 计算BOM展开后的总需求量
+        Map<String, Integer> totalDemandByItem = new HashMap<>();
+        if (dto.demands != null) {
+            for (ImportDTOs.DemandDTO demand : dto.demands) {
+                expandBomDemand(demand.item, demand.quantity, totalDemandByItem, bomMap);
+            }
+        }
+        
+        int totalDemand = totalDemandByItem.values().stream().mapToInt(Integer::intValue).sum();
+        int finalProductDemand = dto.demands == null ? 0 : 
             dto.demands.stream().mapToInt(d -> d.quantity).sum();
         
-        // 2. 计算最晚需求到期日期
+        // 3. 计算最晚需求到期日期
         LocalDate latestDue = dto.demands == null || dto.demands.isEmpty()
                 ? LocalDate.now()
                 : dto.demands.stream()
@@ -103,38 +133,89 @@ public class DataBuildService {
                     .max(LocalDate::compareTo)
                     .orElse(LocalDate.now());
         
-        // 3. 计算白班产能
+        // 4. 计算白班产能（考虑工艺瓶颈）
         long daysBetween = ChronoUnit.DAYS.between(productionStartDate, latestDue) + 1;
         int dayShiftHours = Shift.DAY.getWorkingHours(); // 12小时
         
-        // 平均速度（所有工艺的平均产能）
-        int avgSpeed = dto.routers == null || dto.routers.isEmpty() ? 20 :
-            dto.routers.stream().mapToInt(r -> r.speedPerHour).sum() / dto.routers.size();
+        // 工艺速度映射（按物料分组，取最小速度作为瓶颈）
+        Map<String, Integer> itemSpeedMap = new HashMap<>();
+        if (dto.routers != null) {
+            for (ImportDTOs.RouterDTO r : dto.routers) {
+                itemSpeedMap.merge(r.item, r.speedPerHour, Math::min);
+            }
+        }
         
         // 产线数量
         int lineCount = dto.lines == null ? 1 : dto.lines.size();
         
-        // 白班总产能
+        // 计算各物料的理论产能并找出瓶颈
+        long minCapacityRatio = Long.MAX_VALUE;
+        String bottleneckItem = "";
+        for (Map.Entry<String, Integer> entry : totalDemandByItem.entrySet()) {
+            String itemCode = entry.getKey();
+            int demand = entry.getValue();
+            int speed = itemSpeedMap.getOrDefault(itemCode, 20); // 默认20件/小时
+            long capacity = daysBetween * dayShiftHours * speed * lineCount;
+            if (demand > 0) {
+                long ratio = capacity * 100 / demand;
+                if (ratio < minCapacityRatio) {
+                    minCapacityRatio = ratio;
+                    bottleneckItem = itemCode;
+                }
+            }
+        }
+        
+        // 白班总产能（用平均速度估算）
+        int avgSpeed = dto.routers == null || dto.routers.isEmpty() ? 20 :
+            dto.routers.stream().mapToInt(r -> r.speedPerHour).sum() / dto.routers.size();
         long dayShiftCapacity = daysBetween * dayShiftHours * avgSpeed * lineCount;
         
-        // 4. 判断是否需要夜班（85%阈值）
-        boolean needNightShift = totalDemand > dayShiftCapacity * 0.85;
+        // 5. 判断是否需要夜班
+        // 策略：如果任何物料的需求超过白班产能的90%，或产能利用率>90%，则启用夜班
+        boolean needNightShift = (totalDemand > dayShiftCapacity * 0.90) || (minCapacityRatio < 110);
         
         System.out.println("===== 产能评估 =====");
-        System.out.printf("总需求量: %d 件%n", totalDemand);
+        System.out.printf("成品需求量: %d 件%n", finalProductDemand);
+        System.out.printf("总需求量(含BOM): %d 件%n", totalDemand);
         System.out.printf("生产周期: %d 天 (从 %s 到 %s)%n", daysBetween, productionStartDate, latestDue);
         System.out.printf("白班产能: %d 件 (%d天 × %d小时 × %d件/时 × %d产线)%n", 
             dayShiftCapacity, daysBetween, dayShiftHours, avgSpeed, lineCount);
         System.out.printf("产能利用率: %.1f%%%n", (totalDemand * 100.0 / dayShiftCapacity));
-        System.out.printf("是否启用夜班: %s%n", needNightShift ? "是" : "否");
+        if (!bottleneckItem.isEmpty()) {
+            System.out.printf("瓶颈物料: %s (产能裕度 %d%%)%n", bottleneckItem, minCapacityRatio);
+        }
+        System.out.printf("是否启用夜班: %s%s%n", needNightShift ? "是" : "否",
+            needNightShift ? " (需求超过白班产能90%或存在瓶颈)" : "");
         System.out.println("==================");
         
-        // 5. 生成时间槽（带班次信息）
+        // 6. 生成时间槽（带班次信息）
         List<TimeSlot> timeSlots = generateTimeSlotsWithShifts(
             productionStartDate, latestDue, needNightShift);
         
-        // 6. 构建排产计划
+        // 7. 构建排产计划
         return buildScheduleWithTimeSlots(dto, productionStartDate, latestDue, timeSlots);
+    }
+    
+    /**
+     * 递归展开BOM需求
+     * @param itemCode 物料代码
+     * @param quantity 需求数量
+     * @param totalDemand 累计需求映射
+     * @param bomMap BOM关系映射
+     */
+    private void expandBomDemand(String itemCode, int quantity, 
+                                Map<String, Integer> totalDemand,
+                                Map<String, List<ImportDTOs.BomArcDTO>> bomMap) {
+        // 累加当前物料需求
+        totalDemand.merge(itemCode, quantity, Integer::sum);
+        
+        // 递归展开子件需求
+        List<ImportDTOs.BomArcDTO> children = bomMap.get(itemCode);
+        if (children != null) {
+            for (ImportDTOs.BomArcDTO arc : children) {
+                expandBomDemand(arc.child, quantity * arc.quantityPerParent, totalDemand, bomMap);
+            }
+        }
     }
 
     /**
@@ -308,6 +389,26 @@ public class DataBuildService {
             System.out.printf("  - %s %d件，截止 %s，优先级 %d%n", 
                 d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getPriority());
         }
+
+        // 7) BOM分解：为每个原始需求生成派生需求（用于完成BOM链）
+        // 派生需求继承父需求的优先级，确保高优先级成品的子件也获得高优先级
+        List<DemandOrder> bomBuckets = new ArrayList<>();
+        for (DemandOrder parentBucket : new ArrayList<>(bucketDemands)) {
+            for (BomArc arc : bomArcs) {
+                if (arc.getParent().equals(parentBucket.getItem())) {
+                    Item child = arc.getChild();
+                    int qty = parentBucket.getQuantity() * arc.getQuantityPerParent();
+                    LocalDate childDue = parentBucket.getDueDate().minusDays(Math.max(0, child.getLeadTime()));
+                    if (childDue.isBefore(slotStart)) childDue = slotStart;
+                    if (childDue.isAfter(slotEnd)) childDue = slotEnd;
+                    int childIdx = lastIndexForDateOrClamp(timeSlots, childDue);
+                    // 子件继承父件的优先级，保证整个BOM链的优先级一致性
+                    bomBuckets.add(new DemandOrder(child, qty, childDue, childIdx, parentBucket.getPriority()));
+                }
+            }
+        }
+        bucketDemands.addAll(bomBuckets);
+        bucketDemands = mergeByItemAndDueDate(bucketDemands, timeSlots);
 
         List<DemandOrder> finalDemands = new ArrayList<>(bucketDemands);
 

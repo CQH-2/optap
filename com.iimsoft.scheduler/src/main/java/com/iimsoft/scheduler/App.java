@@ -43,8 +43,11 @@ public class App {
     private static void printSchedule(ProductionSchedule solution) {
         System.out.println("==== 物料需求 ====");
         for (DemandOrder d : solution.getDemandList()) {
-            System.out.printf("需求：物料%s，数量%d，截止日期%s，优先级%d%n",
-                    d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getPriority());
+            // 仅显示原始需求（优先级 > 0），隐藏BOM派生需求（优先级 = 0）
+            if (d.getPriority() > 0) {
+                System.out.printf("需求：物料%s，数量%d，截止日期%s，优先级%d%n",
+                        d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getPriority());
+            }
         }
 
         System.out.println("\n==== 班次使用统计 ====");
@@ -151,11 +154,14 @@ public class App {
             }
         }
         for (DemandOrder d : solution.getDemandList()) {
-            int completed = completedDemand.getOrDefault(d, 0);
-            int shortage = Math.max(0, d.getQuantity() - completed);
-            String status = shortage == 0 ? "✓ 满足" : String.format("缺少%d件", shortage);
-            System.out.printf("需求%s-%d件：已生产%d件 [%s]%n",
-                    d.getItem().getCode(), d.getQuantity(), completed, status);
+            // 仅显示原始需求（优先级 > 0）
+            if (d.getPriority() > 0) {
+                int completed = completedDemand.getOrDefault(d, 0);
+                int shortage = Math.max(0, d.getQuantity() - completed);
+                String status = shortage == 0 ? "✓ 满足" : String.format("缺少%d件", shortage);
+                System.out.printf("需求%s-%d件：已生产%d件 [%s]%n",
+                        d.getItem().getCode(), d.getQuantity(), completed, status);
+            }
         }
     }
 

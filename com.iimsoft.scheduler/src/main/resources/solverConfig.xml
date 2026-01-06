@@ -12,16 +12,22 @@
 
     <phase>
         <constructionHeuristic/>
-        <genetic>
-            <populationSize>200</populationSize>
-            <selection>
-                <tournamentSize>5</tournamentSize>
-            </selection>
-        </genetic>
+        <localSearch>
+            <unionMoveSelector>
+                <changeMoveSelector/>
+                <swapMoveSelector/>
+            </unionMoveSelector>
+            <acceptor>
+                <entityTabuSize>7</entityTabuSize>
+            </acceptor>
+            <forager>
+                <acceptedCountLimit>1000</acceptedCountLimit>
+            </forager>
+        </localSearch>
     </phase>
 
     <termination>
-        <secondsSpentLimit>5</secondsSpentLimit>
+        <secondsSpentLimit>10</secondsSpentLimit>
     </termination>
 
     <environmentMode>REPRODUCIBLE</environmentMode>
