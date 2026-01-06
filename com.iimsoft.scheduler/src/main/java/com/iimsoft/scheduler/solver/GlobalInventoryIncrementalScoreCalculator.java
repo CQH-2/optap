@@ -32,6 +32,8 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
     private static final int SAFETY_SHORTAGE_WEIGHT  = 10;     // 低于安全库存的惩罚：(安全库存-实际库存)×时槽×权重
     private static final int CHANGEOVER_PENALTY      = 500;    // 相邻时槽工艺切换惩罚（同线）
     private static final int HARD_UNSUPPORTED_WEIGHT = 1_000_000; // 产线不支持工艺的硬惩罚
+    private static final int NIGHT_SHIFT_PENALTY     = 100;    // 夜班额外成本惩罚（每件）
+    private static final int HARD_PREDECESSOR_VIOLATION = 1_000_000; // 工序依赖违反的硬惩罚
     
     // 参数化配置（可在运行时修改）
     private int overTolerancePercent = 3; // 超产容忍度（百分比）
@@ -68,6 +70,8 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
     private int safetyShortage;    // 安全库存短缺惩罚累加
     private int changeoverPenalty; // 工艺切换惩罚累加
     private int hardUnsupportedPenalty; // 产线不支持工艺的硬惩罚累计（>0）
+    private int nightShiftCost;    // 夜班额外成本累计
+    private int predecessorViolations; // 工序依赖违反次数累计（>0）
     
     // 公开setter方法，允许运行时配置
     public void setOverTolerancePercent(int percent) {
@@ -189,6 +193,19 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
                 hardUnsupportedPenalty += HARD_UNSUPPORTED_WEIGHT;
             }
         }
+        
+        // 夜班成本：初始化夜班生产的额外成本
+        nightShiftCost = 0;
+        for (ProductionAssignment a : solution.getAssignmentList()) {
+            Router r = a.getRouter();
+            if (r != null && a.getTimeSlot().getShift() == Shift.NIGHT) {
+                nightShiftCost += r.getSpeedPerHour() * NIGHT_SHIFT_PENALTY;
+            }
+        }
+        
+        // 工序依赖约束：检查前置工序完成时间
+        predecessorViolations = 0;
+        predecessorViolations = calculatePredecessorViolations(solution);
     }
 
     @Override public void beforeEntityAdded(Object entity) { }
@@ -204,6 +221,12 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             if (!a.getLine().supports(old)) {
                 hardUnsupportedPenalty -= HARD_UNSUPPORTED_WEIGHT;
             }
+            // 夜班成本调整（移除旧router）
+            if (a.getTimeSlot().getShift() == Shift.NIGHT) {
+                nightShiftCost -= old.getSpeedPerHour() * NIGHT_SHIFT_PENALTY;
+            }
+            // 工序依赖调整（移除旧router）
+            predecessorViolations -= countPredecessorViolationsForAssignment(a, old);
             // 先移除相邻对（旧router）的切换贡献
             adjustNeighborPairs(a, -1); // -1 表示移除旧贡献
             // 产量与库存线性增量（移除旧产量）
@@ -221,6 +244,12 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             if (!a.getLine().supports(now)) {
                 hardUnsupportedPenalty += HARD_UNSUPPORTED_WEIGHT;
             }
+            // 夜班成本调整（加入新router）
+            if (a.getTimeSlot().getShift() == Shift.NIGHT) {
+                nightShiftCost += now.getSpeedPerHour() * NIGHT_SHIFT_PENALTY;
+            }
+            // 工序依赖调整（加入新router）
+            predecessorViolations += countPredecessorViolationsForAssignment(a, now);
             // 产量与库存线性增量（加入新产量）
             applyAssignmentDelta(a.getTimeSlot().getIndex(), now.getItem(), +now.getSpeedPerHour());
             // 重新加入相邻对（新router）的切换贡献
@@ -237,6 +266,10 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             if (!a.getLine().supports(r)) {
                 hardUnsupportedPenalty -= HARD_UNSUPPORTED_WEIGHT;
             }
+            if (a.getTimeSlot().getShift() == Shift.NIGHT) {
+                nightShiftCost -= r.getSpeedPerHour() * NIGHT_SHIFT_PENALTY;
+            }
+            predecessorViolations -= countPredecessorViolationsForAssignment(a, r);
             adjustNeighborPairs(a, -1);
             applyAssignmentDelta(a.getTimeSlot().getIndex(), r.getItem(), -r.getSpeedPerHour());
         }
@@ -246,8 +279,8 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
 
     @Override
     public HardSoftScore calculateScore() {
-        int hard = -hardPenalty - hardUnsupportedPenalty;
-        int soft = softBucketScore - holdingPenalty - safetyShortage - changeoverPenalty;
+        int hard = -hardPenalty - hardUnsupportedPenalty - (predecessorViolations * HARD_PREDECESSOR_VIOLATION);
+        int soft = softBucketScore - holdingPenalty - safetyShortage - changeoverPenalty - nightShiftCost;
         return HardSoftScore.of(hard, soft);
     }
 
@@ -458,5 +491,63 @@ public class GlobalInventoryIncrementalScoreCalculator implements IncrementalSco
             cachedContribution = propReward + completeReward - unmetPenalty - overPenalty;
             return cachedContribution;
         }
+    }
+    
+    // ----------------- 工序依赖约束 -----------------
+    
+    /**
+     * 计算整个排程中工序依赖违反的次数
+     */
+    private int calculatePredecessorViolations(ProductionSchedule solution) {
+        int violations = 0;
+        for (ProductionAssignment a : solution.getAssignmentList()) {
+            if (a.getRouter() != null) {
+                violations += countPredecessorViolationsForAssignment(a, a.getRouter());
+            }
+        }
+        return violations;
+    }
+    
+    /**
+     * 计算单个Assignment的工序依赖违反数
+     * 检查规则：当前工序的所有前置工序必须在当前工序开始之前完成
+     */
+    private int countPredecessorViolationsForAssignment(ProductionAssignment assignment, Router router) {
+        if (router == null || !router.hasPredecessors()) {
+            return 0;
+        }
+        
+        int currentStartTime = assignment.getTimeSlot().getIndex();
+        int violations = 0;
+        
+        // 检查每个前置工序
+        for (Router predecessor : router.getPredecessors()) {
+            // 找到前置工序的最后完成时间
+            int predecessorLastTime = findLastTimeSlotForRouter(predecessor);
+            
+            // 如果前置工序没有被排程，或者完成时间 >= 当前开始时间，则违反约束
+            if (predecessorLastTime < 0 || predecessorLastTime >= currentStartTime) {
+                violations++;
+            }
+        }
+        
+        return violations;
+    }
+    
+    /**
+     * 找到某个工序最后被排程的时间槽索引
+     * @return 最后时间槽索引，如果未排程则返回-1
+     */
+    private int findLastTimeSlotForRouter(Router router) {
+        int lastIndex = -1;
+        for (ProductionAssignment a : solution.getAssignmentList()) {
+            if (router.equals(a.getRouter())) {
+                int idx = a.getTimeSlot().getIndex();
+                if (idx > lastIndex) {
+                    lastIndex = idx;
+                }
+            }
+        }
+        return lastIndex;
     }
 }

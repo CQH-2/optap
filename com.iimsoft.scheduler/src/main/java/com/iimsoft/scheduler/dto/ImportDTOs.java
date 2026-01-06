@@ -13,7 +13,11 @@ public class ImportDTOs {
     }
     public static class ItemDTO { public String code, name, itemType; public int leadTime; }
     public static class BomArcDTO { public String parent, child; public int quantityPerParent; }
-    public static class RouterDTO { public String code, item; public int speedPerHour, setupTimeHours, minBatchSize; }
+    public static class RouterDTO { 
+        public String code, item; 
+        public int speedPerHour, setupTimeHours, minBatchSize; 
+        public List<String> predecessors; // 前置工序代码列表
+    }
     public static class LineDTO { public String code; public List<String> supportedRouters; }
     public static class InventoryDTO { public String item; public int initialOnHand, safetyStock; }
     public static class DemandDTO { public String item; public int quantity, priority; public String dueDate; }

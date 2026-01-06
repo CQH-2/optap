@@ -6,6 +6,7 @@ import com.iimsoft.scheduler.dto.ImportDTOs;
 
 import java.io.File;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -74,6 +75,256 @@ public class DataBuildService {
         return buildSchedule(dto, slotStart, slotEnd, workStart, workEnd);
     }
 
+    /**
+     * 智能排产：根据产能自动判断是否需要夜班
+     * 排产逻辑：
+     * 1. 计算总需求量
+     * 2. 计算白班产能
+     * 3. 如果白班产能不足（<85%），自动启用夜班
+     * 4. 从需求时间倒排到指定开始日期
+     * 
+     * @param jsonPath 数据文件路径
+     * @param productionStartDate 生产开始日期
+     * @return 生产计划（自动包含白班/夜班时间槽）
+     */
+    public ProductionSchedule buildScheduleWithShiftPlanning(String jsonPath,
+                                                             LocalDate productionStartDate) throws Exception {
+        ImportDTOs.Root dto = mapper.readValue(new File(jsonPath), ImportDTOs.Root.class);
+        
+        // 1. 计算总需求量
+        int totalDemand = dto.demands == null ? 0 : 
+            dto.demands.stream().mapToInt(d -> d.quantity).sum();
+        
+        // 2. 计算最晚需求到期日期
+        LocalDate latestDue = dto.demands == null || dto.demands.isEmpty()
+                ? LocalDate.now()
+                : dto.demands.stream()
+                    .map(d -> LocalDate.parse(d.dueDate))
+                    .max(LocalDate::compareTo)
+                    .orElse(LocalDate.now());
+        
+        // 3. 计算白班产能
+        long daysBetween = ChronoUnit.DAYS.between(productionStartDate, latestDue) + 1;
+        int dayShiftHours = Shift.DAY.getWorkingHours(); // 12小时
+        
+        // 平均速度（所有工艺的平均产能）
+        int avgSpeed = dto.routers == null || dto.routers.isEmpty() ? 20 :
+            dto.routers.stream().mapToInt(r -> r.speedPerHour).sum() / dto.routers.size();
+        
+        // 产线数量
+        int lineCount = dto.lines == null ? 1 : dto.lines.size();
+        
+        // 白班总产能
+        long dayShiftCapacity = daysBetween * dayShiftHours * avgSpeed * lineCount;
+        
+        // 4. 判断是否需要夜班（85%阈值）
+        boolean needNightShift = totalDemand > dayShiftCapacity * 0.85;
+        
+        System.out.println("===== 产能评估 =====");
+        System.out.printf("总需求量: %d 件%n", totalDemand);
+        System.out.printf("生产周期: %d 天 (从 %s 到 %s)%n", daysBetween, productionStartDate, latestDue);
+        System.out.printf("白班产能: %d 件 (%d天 × %d小时 × %d件/时 × %d产线)%n", 
+            dayShiftCapacity, daysBetween, dayShiftHours, avgSpeed, lineCount);
+        System.out.printf("产能利用率: %.1f%%%n", (totalDemand * 100.0 / dayShiftCapacity));
+        System.out.printf("是否启用夜班: %s%n", needNightShift ? "是" : "否");
+        System.out.println("==================");
+        
+        // 5. 生成时间槽（带班次信息）
+        List<TimeSlot> timeSlots = generateTimeSlotsWithShifts(
+            productionStartDate, latestDue, needNightShift);
+        
+        // 6. 构建排产计划
+        return buildScheduleWithTimeSlots(dto, productionStartDate, latestDue, timeSlots);
+    }
+
+    /**
+     * 生成时间槽（支持白班+夜班）
+     * 白班：8:00-19:00
+     * 夜班：20:00-次日7:00
+     */
+    private List<TimeSlot> generateTimeSlotsWithShifts(LocalDate start, LocalDate end, 
+                                                       boolean includeNightShift) {
+        List<TimeSlot> slots = new ArrayList<>();
+        int idx = 0;
+        
+        for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+            // 白班：8:00-19:00
+            for (int h = 8; h <= 19; h++) {
+                slots.add(new TimeSlot(d, h, idx++, Shift.DAY));
+            }
+            
+            // 夜班：20:00-次日7:00（如果需要）
+            if (includeNightShift) {
+                // 当天 20:00-23:00
+                for (int h = 20; h <= 23; h++) {
+                    slots.add(new TimeSlot(d, h, idx++, Shift.NIGHT));
+                }
+                // 次日 0:00-7:00
+                LocalDate nextDay = d.plusDays(1);
+                if (!nextDay.isAfter(end)) { // 确保不超出结束日期
+                    for (int h = 0; h <= 7; h++) {
+                        slots.add(new TimeSlot(nextDay, h, idx++, Shift.NIGHT));
+                    }
+                }
+            }
+        }
+        
+        return slots;
+    }
+    
+    /**
+     * 使用指定的时间槽构建排产计划
+     */
+    private ProductionSchedule buildScheduleWithTimeSlots(ImportDTOs.Root dto,
+                                                          LocalDate slotStart, LocalDate slotEnd,
+                                                          List<TimeSlot> timeSlots) {
+        // 复用原有的 buildSchedule 逻辑，但传入预生成的 timeSlots
+        // 1) Items
+        Map<String, Item> itemMap = new LinkedHashMap<>();
+        if (dto.items != null) {
+            for (ImportDTOs.ItemDTO it : dto.items) {
+                ItemType type = ItemType.GENERIC;
+                if (it.itemType != null) {
+                    try {
+                        type = ItemType.valueOf(it.itemType.toUpperCase());
+                    } catch (IllegalArgumentException e) {
+                        // 如果解析失败，使用默认值GENERIC
+                    }
+                }
+                itemMap.put(it.code, new Item(it.code, it.name, it.leadTime, type));
+            }
+        }
+
+        // 2) BOM
+        List<BomArc> bomArcs = new ArrayList<>();
+        if (dto.bomArcs != null) {
+            for (ImportDTOs.BomArcDTO arc : dto.bomArcs) {
+                Item parent = itemMap.get(arc.parent);
+                Item child = itemMap.get(arc.child);
+                if (parent != null && child != null) {
+                    bomArcs.add(new BomArc(parent, child, arc.quantityPerParent));
+                }
+            }
+        }
+
+        // 3) Routers（第一遍：创建所有Router对象）
+        Map<String, Router> routerMap = new LinkedHashMap<>();
+        if (dto.routers != null) {
+            for (ImportDTOs.RouterDTO r : dto.routers) {
+                Item item = itemMap.get(r.item);
+                if (item != null) {
+                    int setupTime = r.setupTimeHours > 0 ? r.setupTimeHours : 0;
+                    int minBatch = r.minBatchSize > 0 ? r.minBatchSize : 0;
+                    routerMap.put(r.code, new Router(r.code, item, r.speedPerHour, setupTime, minBatch));
+                }
+            }
+        }
+        
+        // 3.1) Routers（第二遍：设置前置工序依赖关系）
+        if (dto.routers != null) {
+            for (ImportDTOs.RouterDTO r : dto.routers) {
+                Router router = routerMap.get(r.code);
+                if (router != null && r.predecessors != null) {
+                    for (String predCode : r.predecessors) {
+                        Router predecessor = routerMap.get(predCode);
+                        if (predecessor != null) {
+                            router.addPredecessor(predecessor);
+                        }
+                    }
+                }
+            }
+        }
+        
+        List<Router> routers = new ArrayList<>(routerMap.values());
+
+        // 4) Lines
+        List<ProductionLine> productionLines = new ArrayList<>();
+        if (dto.lines != null) {
+            for (ImportDTOs.LineDTO l : dto.lines) {
+                ProductionLine productionLine = new ProductionLine(l.code);
+                List<Router> supported = l.supportedRouters == null
+                        ? List.of()
+                        : l.supportedRouters.stream().map(routerMap::get).filter(Objects::nonNull).collect(Collectors.toList());
+                productionLine.setSupportedRouters(supported);
+                productionLines.add(productionLine);
+            }
+        }
+
+        // 5) Inventories
+        List<ItemInventory> inventories = new ArrayList<>();
+        if (dto.inventories != null) {
+            for (ImportDTOs.InventoryDTO inv : dto.inventories) {
+                Item it = itemMap.get(inv.item);
+                if (it != null) {
+                    ItemInventory ii = new ItemInventory(it, inv.initialOnHand);
+                    ii.setSafetyStock(inv.safetyStock);
+                    inventories.add(ii);
+                }
+            }
+        }
+
+        // 6) 需求处理 - 仅使用原始需求，不添加BOM派生需求
+        List<DemandOrder> bucketDemands = new ArrayList<>();
+        if (dto.demands != null) {
+            Map<String, Map<String, Object>> demandMap = new LinkedHashMap<>();
+            
+            for (ImportDTOs.DemandDTO dmd : dto.demands) {
+                Item it = itemMap.get(dmd.item);
+                if (it == null) continue;
+                LocalDate dueDate = LocalDate.parse(dmd.dueDate);
+                String key = it.getCode() + "@" + dueDate;
+                
+                int priority = dmd.priority > 0 ? dmd.priority : 5;
+                demandMap.compute(key, (k, v) -> {
+                    if (v == null) {
+                        v = new HashMap<>();
+                        v.put("item", it);
+                        v.put("dueDate", dueDate);
+                        v.put("qty", dmd.quantity);
+                        v.put("priority", priority);
+                    } else {
+                        int existQty = (int) v.get("qty");
+                        int existPriority = (int) v.get("priority");
+                        v.put("qty", existQty + dmd.quantity);
+                        v.put("priority", Math.max(priority, existPriority));
+                    }
+                    return v;
+                });
+            }
+            
+            for (Map<String, Object> demand : demandMap.values()) {
+                Item it = (Item) demand.get("item");
+                LocalDate dueDate = (LocalDate) demand.get("dueDate");
+                int qty = (int) demand.get("qty");
+                int priority = (int) demand.get("priority");
+                int dueIdx = lastIndexForDateOrClamp(timeSlots, dueDate);
+                bucketDemands.add(new DemandOrder(it, qty, dueDate, dueIdx, priority));
+            }
+        }
+
+        // 调试输出
+        System.out.printf("✓ 原始需求数量: %d%n", bucketDemands.size());
+        for (DemandOrder d : bucketDemands) {
+            System.out.printf("  - %s %d件，截止 %s，优先级 %d%n", 
+                d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getPriority());
+        }
+
+        List<DemandOrder> finalDemands = new ArrayList<>(bucketDemands);
+
+        // 8) Assignments
+        List<ProductionAssignment> assignments = new ArrayList<>();
+        long id = 1L;
+        for (ProductionLine productionLine : productionLines) {
+            for (TimeSlot slot : timeSlots) {
+                assignments.add(new ProductionAssignment(id++, productionLine, slot));
+            }
+        }
+
+        return new ProductionSchedule(
+                routers, productionLines, timeSlots, bomArcs, inventories, finalDemands, assignments
+        );
+    }
+
     public ProductionSchedule buildSchedule(ImportDTOs.Root dto,
                                             LocalDate slotStart, LocalDate slotEnd,
                                             int workStart, int workEnd) {
@@ -105,7 +356,7 @@ public class DataBuildService {
             }
         }
 
-        // 3) Routers
+        // 3) Routers（第一遍：创建所有Router对象）
         Map<String, Router> routerMap = new LinkedHashMap<>();
         if (dto.routers != null) {
             for (ImportDTOs.RouterDTO r : dto.routers) {
@@ -117,6 +368,22 @@ public class DataBuildService {
                 }
             }
         }
+        
+        // 3.1) Routers（第二遍：设置前置工序依赖关系）
+        if (dto.routers != null) {
+            for (ImportDTOs.RouterDTO r : dto.routers) {
+                Router router = routerMap.get(r.code);
+                if (router != null && r.predecessors != null) {
+                    for (String predCode : r.predecessors) {
+                        Router predecessor = routerMap.get(predCode);
+                        if (predecessor != null) {
+                            router.addPredecessor(predecessor);
+                        }
+                    }
+                }
+            }
+        }
+        
         List<Router> routers = new ArrayList<>(routerMap.values());
 
         // 4) Lines
