@@ -391,7 +391,7 @@ public class DataBuildService {
         }
 
         // 7) BOM分解：为每个原始需求生成派生需求（用于完成BOM链）
-        // 派生需求继承父需求的优先级，确保高优先级成品的子件也获得高优先级
+        // 派生需求优先级设为0，标记为系统自动生成（不显示给用户）
         List<DemandOrder> bomBuckets = new ArrayList<>();
         for (DemandOrder parentBucket : new ArrayList<>(bucketDemands)) {
             for (BomArc arc : bomArcs) {
@@ -402,8 +402,8 @@ public class DataBuildService {
                     if (childDue.isBefore(slotStart)) childDue = slotStart;
                     if (childDue.isAfter(slotEnd)) childDue = slotEnd;
                     int childIdx = lastIndexForDateOrClamp(timeSlots, childDue);
-                    // 子件继承父件的优先级，保证整个BOM链的优先级一致性
-                    bomBuckets.add(new DemandOrder(child, qty, childDue, childIdx, parentBucket.getPriority()));
+                    // BOM派生需求优先级设为0，避免干扰优化器决策
+                    bomBuckets.add(new DemandOrder(child, qty, childDue, childIdx, 0));
                 }
             }
         }

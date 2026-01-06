@@ -33,8 +33,24 @@ public class App {
         var solverManager = SolverManager.create(solverFactory);
         long problemId = 1L;
 
+        // 诊断日志：输出配置信息
+        System.out.println("\n==== 工艺路线配置 ====");
+        for (Router r : problem.getRouterList()) {
+            System.out.printf("工艺[%s]: 物料=%s, 速度=%d件/时%n", 
+                r.getCode(), r.getItem().getCode(), r.getSpeedPerHour());
+        }
+        
+        System.out.println("\n==== 产线能力配置 ====");
+        for (ProductionLine line : problem.getLineList()) {
+            System.out.printf("产线[%s]: 支持工艺=%s%n", 
+                line.getCode(), line.getSupportedRouters().stream()
+                    .map(Router::getCode).collect(Collectors.joining(", ")));
+        }
+        
+        System.out.println("\n==== 开始求解（预计耗时180秒）====");
         ProductionSchedule solution = solverManager.solve(problemId, problem).getFinalBestSolution();
 
+        System.out.println("\n==== 求解完成 ====");
         System.out.println("Score: " + solution.getScore());
 
         printSchedule(solution);
@@ -42,12 +58,16 @@ public class App {
 
     private static void printSchedule(ProductionSchedule solution) {
         System.out.println("==== 物料需求 ====");
-        for (DemandOrder d : solution.getDemandList()) {
-            // 仅显示原始需求（优先级 > 0），隐藏BOM派生需求（优先级 = 0）
-            if (d.getPriority() > 0) {
-                System.out.printf("需求：物料%s，数量%d，截止日期%s，优先级%d%n",
-                        d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getPriority());
-            }
+        // 按优先级降序、再按截止日期升序排序需求
+        List<DemandOrder> sortedDemands = solution.getDemandList().stream()
+            .filter(d -> d.getPriority() > 0) // 仅显示原始需求
+            .sorted(Comparator.comparing(DemandOrder::getPriority).reversed()
+                .thenComparing(DemandOrder::getDueDate))
+            .toList();
+        
+        for (DemandOrder d : sortedDemands) {
+            System.out.printf("需求：物料%s，数量%d，截止日期%s，优先级%d%n",
+                    d.getItem().getCode(), d.getQuantity(), d.getDueDate(), d.getPriority());
         }
 
         System.out.println("\n==== 班次使用统计 ====");

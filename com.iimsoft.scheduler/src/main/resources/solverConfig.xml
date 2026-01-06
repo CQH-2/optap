@@ -27,7 +27,7 @@
     </phase>
 
     <termination>
-        <secondsSpentLimit>10</secondsSpentLimit>
+        <secondsSpentLimit>180</secondsSpentLimit>
     </termination>
 
     <environmentMode>REPRODUCIBLE</environmentMode>
