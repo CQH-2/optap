@@ -58,7 +58,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.0</version>
                 <configuration>
-                    <mainClass>com.iimsoft.scheduler.App</mainClass>
+                    <mainClass>com.iimsoft.scheduler.SchedulingApp</mainClass>
                 </configuration>
             </plugin>
         </plugins>
