@@ -137,22 +137,18 @@ public class SchedulingConstraintProvider implements ConstraintProvider {
      */
     Constraint minimizeTardiness(ConstraintFactory constraintFactory) {
         return constraintFactory.forEach(Operation.class)
-                .filter(op -> op.getEndTime() != null && op.getOrder() != null)
-                .groupBy(Operation::getOrder, 
-                        (order, ops) -> ops.mapToLong(Operation::getEndTime).max().orElse(0L))
-                .filter((order, maxEndTime) -> {
-                    if (order.getDueDate() == null) return false;
-                    long dueDateMillis = order.getDueDate().atStartOfDay()
-                            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
-                    return maxEndTime > dueDateMillis;
-                })
+                .filter(op -> op.getEndTime() != null && op.getOrder() != null && op.getOrder().getDueDate() != null)
                 .penalize(HardSoftScore.ONE_SOFT,
-                        (order, maxEndTime) -> {
-                            long dueDateMillis = order.getDueDate().atStartOfDay()
+                        op -> {
+                            Long endTime = op.getEndTime();
+                            long dueDateMillis = op.getOrder().getDueDate().atStartOfDay()
                                     .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+                            if (endTime <= dueDateMillis) {
+                                return 0; // 未延误，不惩罚
+                            }
                             // 延误时间（小时）* 优先级
-                            long delayHours = (maxEndTime - dueDateMillis) / (3600 * 1000);
-                            return (int)(delayHours * order.getPriority());
+                            long delayHours = (endTime - dueDateMillis) / (3600 * 1000);
+                            return (int)(delayHours * op.getOrder().getPriority());
                         })
                 .asConstraint("最小化总延误");
     }
@@ -179,18 +175,13 @@ public class SchedulingConstraintProvider implements ConstraintProvider {
 
     /**
      * 软约束3：均衡负载 - 尽量避免某些生产线过载而某些闲置
+     * 简化版：惩罚使用频率较高的生产线
      */
     Constraint loadBalancing(ConstraintFactory constraintFactory) {
         return constraintFactory.forEach(Operation.class)
                 .filter(op -> op.getAssignedLine() != null && op.getStandardHours() > 0)
-                .groupBy(Operation::getAssignedLine, 
-                        (line, ops) -> ops.mapToDouble(Operation::getStandardHours).sum())
                 .penalize(HardSoftScore.ONE_SOFT,
-                        (line, totalHours) -> {
-                            // 惩罚与平均负载的偏差
-                            double avgLoad = 40.0; // 假设平均负载40小时
-                            return (int)Math.abs(totalHours - avgLoad);
-                        })
+                        op -> (int)(op.getStandardHours() * 10)) // 每小时工时惩罚10分
                 .asConstraint("均衡负载");
     }
 }

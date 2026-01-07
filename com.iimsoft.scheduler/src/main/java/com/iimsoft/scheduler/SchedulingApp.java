@@ -58,10 +58,10 @@ public class SchedulingApp {
         List<ProductionLine> lines = List.of(lineA, lineB);
 
         // 2. 创建工艺
-        Process assembly = new Process("Assembly", "组装工艺");
-        Process testing = new Process("Testing", "测试工艺");
-        Process packing = new Process("Packing", "包装工艺");
-        List<Process> processes = List.of(assembly, testing, packing);
+        com.iimsoft.scheduler.domain.Process assembly = new com.iimsoft.scheduler.domain.Process("Assembly", "组装工艺");
+        com.iimsoft.scheduler.domain.Process testing = new com.iimsoft.scheduler.domain.Process("Testing", "测试工艺");
+        com.iimsoft.scheduler.domain.Process packing = new com.iimsoft.scheduler.domain.Process("Packing", "包装工艺");
+        List<com.iimsoft.scheduler.domain.Process> processes = List.of(assembly, testing, packing);
 
         // 3. 创建物料
         Material mat1 = new Material("M001", "原材料1");
@@ -131,7 +131,7 @@ public class SchedulingApp {
         }
         
         System.out.println("\n工艺类型：");
-        for (Process process : solution.getProcessList()) {
+        for (com.iimsoft.scheduler.domain.Process process : solution.getProcessList()) {
             System.out.println("  - " + process.getId() + ": " + process.getName());
         }
         
