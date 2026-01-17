@@ -8,10 +8,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.optaplanner.core.impl.heuristic.selector.common.decorator.SelectionSorterWeightFactory;
-import org.optaplanner.examples.projectjobscheduling.domain.ExecutionMode;
-import org.optaplanner.examples.projectjobscheduling.domain.ResourceRequirement;
-import org.optaplanner.examples.projectjobscheduling.domain.Schedule;
-import org.optaplanner.examples.projectjobscheduling.domain.resource.Resource;
+import com.iimsoft.schduler.domain.ExecutionMode;
+import com.iimsoft.schduler.domain.ResourceRequirement;
+import com.iimsoft.schduler.domain.Schedule;
+import com.iimsoft.schduler.domain.resource.Resource;
 
 public class ExecutionModeStrengthWeightFactory implements SelectionSorterWeightFactory<Schedule, ExecutionMode> {
 

@@ -2,7 +2,7 @@ package com.iimsoft.schduler.domain;
 
 import org.optaplanner.examples.common.domain.AbstractPersistable;
 import org.optaplanner.examples.common.persistence.jackson.JacksonUniqueIdGenerator;
-import org.optaplanner.examples.projectjobscheduling.domain.Allocation;
+import com.iimsoft.schduler.domain.Allocation;
 
 import com.fasterxml.jackson.annotation.JsonIdentityInfo;
 import com.fasterxml.jackson.annotation.JsonIgnore;

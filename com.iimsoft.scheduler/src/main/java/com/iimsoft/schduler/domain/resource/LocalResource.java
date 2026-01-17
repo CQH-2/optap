@@ -1,7 +1,6 @@
 package com.iimsoft.schduler.domain.resource;
 
-import org.optaplanner.examples.projectjobscheduling.domain.Project;
-import org.optaplanner.examples.projectjobscheduling.domain.resource.Resource;
+import com.iimsoft.schduler.domain.Project;
 
 public class LocalResource extends Resource {
 

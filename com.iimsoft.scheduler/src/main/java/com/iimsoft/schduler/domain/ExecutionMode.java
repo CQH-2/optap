@@ -6,26 +6,26 @@ import org.optaplanner.examples.common.domain.AbstractPersistable;
 import org.optaplanner.examples.common.persistence.jackson.JacksonUniqueIdGenerator;
 
 import com.fasterxml.jackson.annotation.JsonIdentityInfo;
-import org.optaplanner.examples.projectjobscheduling.domain.Job;
-import org.optaplanner.examples.projectjobscheduling.domain.ResourceRequirement;
+import com.iimsoft.schduler.domain.Job;
+import com.iimsoft.schduler.domain.ResourceRequirement;
 
 @JsonIdentityInfo(generator = JacksonUniqueIdGenerator.class)
 public class ExecutionMode extends AbstractPersistable {
 
-    private org.optaplanner.examples.projectjobscheduling.domain.Job job;
+    private Job job;
     private int duration; // In days
 
     public ExecutionMode() {
     }
 
-    public ExecutionMode(long id, org.optaplanner.examples.projectjobscheduling.domain.Job job) {
+    public ExecutionMode(long id, Job job) {
         super(id);
         this.job = job;
     }
 
     private List<ResourceRequirement> resourceRequirementList;
 
-    public org.optaplanner.examples.projectjobscheduling.domain.Job getJob() {
+    public Job getJob() {
         return job;
     }
 

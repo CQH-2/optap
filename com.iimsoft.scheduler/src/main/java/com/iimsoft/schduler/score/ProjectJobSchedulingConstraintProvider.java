@@ -9,9 +9,9 @@ import org.optaplanner.core.api.score.stream.ConstraintCollectors;
 import org.optaplanner.core.api.score.stream.ConstraintFactory;
 import org.optaplanner.core.api.score.stream.ConstraintProvider;
 import org.optaplanner.core.api.score.stream.Joiners;
-import org.optaplanner.examples.projectjobscheduling.domain.Allocation;
-import org.optaplanner.examples.projectjobscheduling.domain.JobType;
-import org.optaplanner.examples.projectjobscheduling.domain.ResourceRequirement;
+import com.iimsoft.schduler.domain.Allocation;
+import com.iimsoft.schduler.domain.JobType;
+import com.iimsoft.schduler.domain.ResourceRequirement;
 
 public class ProjectJobSchedulingConstraintProvider implements ConstraintProvider {
 

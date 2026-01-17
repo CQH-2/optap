@@ -18,23 +18,23 @@ import java.util.Set;
 
 import org.optaplanner.examples.common.persistence.AbstractTxtSolutionImporter;
 import org.optaplanner.examples.common.persistence.SolutionConverter;
-import org.optaplanner.examples.projectjobscheduling.app.ProjectJobSchedulingApp;
-import org.optaplanner.examples.projectjobscheduling.domain.Allocation;
-import org.optaplanner.examples.projectjobscheduling.domain.ExecutionMode;
-import org.optaplanner.examples.projectjobscheduling.domain.Job;
-import org.optaplanner.examples.projectjobscheduling.domain.JobType;
-import org.optaplanner.examples.projectjobscheduling.domain.Project;
-import org.optaplanner.examples.projectjobscheduling.domain.ResourceRequirement;
-import org.optaplanner.examples.projectjobscheduling.domain.Schedule;
-import org.optaplanner.examples.projectjobscheduling.domain.resource.GlobalResource;
-import org.optaplanner.examples.projectjobscheduling.domain.resource.LocalResource;
-import org.optaplanner.examples.projectjobscheduling.domain.resource.Resource;
-import org.optaplanner.examples.projectjobscheduling.persistence.ProjectJobSchedulingSolutionFileIO;
+import com.iimsoft.schduler.domain.Allocation;
+import com.iimsoft.schduler.domain.ExecutionMode;
+import com.iimsoft.schduler.domain.Job;
+import com.iimsoft.schduler.domain.JobType;
+import com.iimsoft.schduler.domain.Project;
+import com.iimsoft.schduler.domain.ResourceRequirement;
+import com.iimsoft.schduler.domain.Schedule;
+import com.iimsoft.schduler.domain.resource.GlobalResource;
+import com.iimsoft.schduler.domain.resource.LocalResource;
+import com.iimsoft.schduler.domain.resource.Resource;
 
 public class ProjectJobSchedulingImporter extends AbstractTxtSolutionImporter<Schedule> {
 
+    public static final String DATA_DIR_NAME = "projectjobscheduling";
+
     public static void main(String[] args) {
-        SolutionConverter<Schedule> converter = SolutionConverter.createImportConverter(ProjectJobSchedulingApp.DATA_DIR_NAME,
+        SolutionConverter<Schedule> converter = SolutionConverter.createImportConverter(DATA_DIR_NAME,
                 new ProjectJobSchedulingImporter(), new ProjectJobSchedulingSolutionFileIO());
         converter.convertAll();
     }

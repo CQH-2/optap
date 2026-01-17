@@ -10,14 +10,14 @@ import org.optaplanner.core.api.domain.variable.PlanningVariable;
 import org.optaplanner.core.api.domain.variable.ShadowVariable;
 import org.optaplanner.examples.common.domain.AbstractPersistable;
 import org.optaplanner.examples.common.persistence.jackson.JacksonUniqueIdGenerator;
-import org.optaplanner.examples.projectjobscheduling.domain.ExecutionMode;
-import org.optaplanner.examples.projectjobscheduling.domain.Job;
-import org.optaplanner.examples.projectjobscheduling.domain.JobType;
-import org.optaplanner.examples.projectjobscheduling.domain.Project;
-import org.optaplanner.examples.projectjobscheduling.domain.solver.DelayStrengthComparator;
-import org.optaplanner.examples.projectjobscheduling.domain.solver.ExecutionModeStrengthWeightFactory;
-import org.optaplanner.examples.projectjobscheduling.domain.solver.NotSourceOrSinkAllocationFilter;
-import org.optaplanner.examples.projectjobscheduling.domain.solver.PredecessorsDoneDateUpdatingVariableListener;
+import com.iimsoft.schduler.domain.ExecutionMode;
+import com.iimsoft.schduler.domain.Job;
+import com.iimsoft.schduler.domain.JobType;
+import com.iimsoft.schduler.domain.Project;
+import com.iimsoft.schduler.domain.solver.DelayStrengthComparator;
+import com.iimsoft.schduler.domain.solver.ExecutionModeStrengthWeightFactory;
+import com.iimsoft.schduler.domain.solver.NotSourceOrSinkAllocationFilter;
+import com.iimsoft.schduler.domain.solver.PredecessorsDoneDateUpdatingVariableListener;
 
 import com.fasterxml.jackson.annotation.JsonIdentityInfo;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -26,7 +26,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 @JsonIdentityInfo(generator = JacksonUniqueIdGenerator.class)
 public class Allocation extends AbstractPersistable {
 
-    private org.optaplanner.examples.projectjobscheduling.domain.Job job;
+    private Job job;
 
     private Allocation sourceAllocation;
     private Allocation sinkAllocation;
@@ -43,12 +43,12 @@ public class Allocation extends AbstractPersistable {
     public Allocation() {
     }
 
-    public Allocation(long id, org.optaplanner.examples.projectjobscheduling.domain.Job job) {
+    public Allocation(long id, Job job) {
         super(id);
         this.job = job;
     }
 
-    public org.optaplanner.examples.projectjobscheduling.domain.Job getJob() {
+    public Job getJob() {
         return job;
     }
 

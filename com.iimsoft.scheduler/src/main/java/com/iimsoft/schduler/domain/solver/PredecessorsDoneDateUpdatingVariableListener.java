@@ -6,8 +6,8 @@ import java.util.Queue;
 
 import org.optaplanner.core.api.domain.variable.VariableListener;
 import org.optaplanner.core.api.score.director.ScoreDirector;
-import org.optaplanner.examples.projectjobscheduling.domain.Allocation;
-import org.optaplanner.examples.projectjobscheduling.domain.Schedule;
+import com.iimsoft.schduler.domain.Allocation;
+import com.iimsoft.schduler.domain.Schedule;
 
 public class PredecessorsDoneDateUpdatingVariableListener implements VariableListener<Schedule, Allocation> {
 

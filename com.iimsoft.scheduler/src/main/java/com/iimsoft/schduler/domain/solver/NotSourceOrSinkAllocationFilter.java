@@ -1,9 +1,9 @@
 package com.iimsoft.schduler.domain.solver;
 
 import org.optaplanner.core.api.domain.entity.PinningFilter;
-import org.optaplanner.examples.projectjobscheduling.domain.Allocation;
-import org.optaplanner.examples.projectjobscheduling.domain.JobType;
-import org.optaplanner.examples.projectjobscheduling.domain.Schedule;
+import com.iimsoft.schduler.domain.Allocation;
+import com.iimsoft.schduler.domain.JobType;
+import com.iimsoft.schduler.domain.Schedule;
 
 public class NotSourceOrSinkAllocationFilter implements PinningFilter<Schedule, Allocation> {
 

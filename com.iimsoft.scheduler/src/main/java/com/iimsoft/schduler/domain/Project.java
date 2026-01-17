@@ -4,8 +4,8 @@ import java.util.List;
 
 import org.optaplanner.examples.common.domain.AbstractPersistable;
 import org.optaplanner.examples.common.persistence.jackson.JacksonUniqueIdGenerator;
-import org.optaplanner.examples.projectjobscheduling.domain.Job;
-import org.optaplanner.examples.projectjobscheduling.domain.resource.LocalResource;
+import com.iimsoft.schduler.domain.Job;
+import com.iimsoft.schduler.domain.resource.LocalResource;
 
 import com.fasterxml.jackson.annotation.JsonIdentityInfo;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -17,7 +17,7 @@ public class Project extends AbstractPersistable {
     private int criticalPathDuration;
 
     private List<LocalResource> localResourceList;
-    private List<org.optaplanner.examples.projectjobscheduling.domain.Job> jobList;
+    private List<Job> jobList;
 
     public Project() {
     }
@@ -52,7 +52,7 @@ public class Project extends AbstractPersistable {
         this.localResourceList = localResourceList;
     }
 
-    public List<org.optaplanner.examples.projectjobscheduling.domain.Job> getJobList() {
+    public List<Job> getJobList() {
         return jobList;
     }
 

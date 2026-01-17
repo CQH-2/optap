@@ -3,8 +3,8 @@ package com.iimsoft.schduler.app;
 import org.optaplanner.core.api.solver.Solver;
 import org.optaplanner.core.api.solver.SolverFactory;
 import org.optaplanner.core.config.solver.SolverConfig;
-import org.optaplanner.examples.projectjobscheduling.domain.Schedule;
-import org.optaplanner.examples.projectjobscheduling.persistence.ProjectJobSchedulingImporter;
+import com.iimsoft.schduler.domain.Schedule;
+import com.iimsoft.schduler.persistence.ProjectJobSchedulingImporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +43,7 @@ public class ProjectJobSchedulingApp {
         // Create solver
         SolverFactory<Schedule> solverFactory = SolverFactory.create(new SolverConfig()
                 .withSolutionClass(Schedule.class)
-                .withEntityClasses(org.optaplanner.examples.projectjobscheduling.domain.Allocation.class)
+                .withEntityClasses(com.iimsoft.schduler.domain.Allocation.class)
                 .withConstraintProviderClass(com.iimsoft.schduler.score.ProjectJobSchedulingConstraintProvider.class)
                 .withTerminationSpentLimit(Duration.ofMinutes(5)));
 

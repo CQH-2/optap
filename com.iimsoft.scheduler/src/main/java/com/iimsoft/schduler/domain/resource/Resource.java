@@ -7,8 +7,8 @@ import com.fasterxml.jackson.annotation.JsonIdentityInfo;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import org.optaplanner.examples.projectjobscheduling.domain.resource.GlobalResource;
-import org.optaplanner.examples.projectjobscheduling.domain.resource.LocalResource;
+import com.iimsoft.schduler.domain.resource.GlobalResource;
+import com.iimsoft.schduler.domain.resource.LocalResource;
 
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME)
 @JsonSubTypes({

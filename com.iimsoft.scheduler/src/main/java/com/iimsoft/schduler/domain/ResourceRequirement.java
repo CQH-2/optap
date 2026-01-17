@@ -2,8 +2,8 @@ package com.iimsoft.schduler.domain;
 
 import org.optaplanner.examples.common.domain.AbstractPersistable;
 import org.optaplanner.examples.common.persistence.jackson.JacksonUniqueIdGenerator;
-import org.optaplanner.examples.projectjobscheduling.domain.ExecutionMode;
-import org.optaplanner.examples.projectjobscheduling.domain.resource.Resource;
+import com.iimsoft.schduler.domain.ExecutionMode;
+import com.iimsoft.schduler.domain.resource.Resource;
 
 import com.fasterxml.jackson.annotation.JsonIdentityInfo;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -11,21 +11,21 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 @JsonIdentityInfo(generator = JacksonUniqueIdGenerator.class)
 public class ResourceRequirement extends AbstractPersistable {
 
-    private org.optaplanner.examples.projectjobscheduling.domain.ExecutionMode executionMode;
+    private ExecutionMode executionMode;
     private Resource resource;
     private int requirement;
 
     public ResourceRequirement() {
     }
 
-    public ResourceRequirement(long id, org.optaplanner.examples.projectjobscheduling.domain.ExecutionMode executionMode, Resource resource, int requirement) {
+    public ResourceRequirement(long id, ExecutionMode executionMode, Resource resource, int requirement) {
         super(id);
         this.executionMode = executionMode;
         this.resource = resource;
         this.requirement = requirement;
     }
 
-    public org.optaplanner.examples.projectjobscheduling.domain.ExecutionMode getExecutionMode() {
+    public ExecutionMode getExecutionMode() {
         return executionMode;
     }
 
