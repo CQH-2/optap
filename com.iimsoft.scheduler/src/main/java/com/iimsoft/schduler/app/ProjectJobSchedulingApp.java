@@ -40,11 +40,12 @@ public class ProjectJobSchedulingApp {
                 problem.getJobList().size(),
                 problem.getAllocationList().size());
 
-        // Create solver
+        // Create solver with incremental score calculator
         SolverFactory<Schedule> solverFactory = SolverFactory.create(new SolverConfig()
                 .withSolutionClass(Schedule.class)
                 .withEntityClasses(com.iimsoft.schduler.domain.Allocation.class)
-                .withConstraintProviderClass(com.iimsoft.schduler.score.ProjectJobSchedulingConstraintProvider.class)
+                .withScoreDirectorFactory(new org.optaplanner.core.config.score.director.ScoreDirectorFactoryConfig()
+                        .withIncrementalScoreCalculatorClass(com.iimsoft.schduler.score.FactoryInventoryIncrementalScoreCalculator.class))
                 .withTerminationSpentLimit(Duration.ofMinutes(5)));
 
         Solver<Schedule> solver = solverFactory.buildSolver();
