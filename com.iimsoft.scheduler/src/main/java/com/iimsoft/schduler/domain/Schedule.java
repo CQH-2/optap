@@ -92,7 +92,7 @@ public class Schedule extends AbstractPersistable {
         return itemList;
     }
 
-    public void setItemList(List itemList) {
+    public void setItemList(List<Item> itemList) {
         this.itemList = itemList;
     }
 
@@ -105,7 +105,7 @@ public class Schedule extends AbstractPersistable {
         return inventoryEventList;
     }
 
-    public void setInventoryEventList(List inventoryEventList) {
+    public void setInventoryEventList(List<InventoryEvent> inventoryEventList) {
         this.inventoryEventList = inventoryEventList;
     }
 
