@@ -23,3 +23,80 @@
 2026-01-17 10:21:56.548 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   day 4 : delta 0, balance 3
 2026-01-17 10:21:56.548 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   day 5 : delta 0, balance 3
 2026-01-17 10:21:56.549 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ===============================================
+2026-01-18 07:17:18.354 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:17:18.355 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -        OptaPlanner 项目任务排程求解器
+2026-01-18 07:17:18.356 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:17:18.356 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 未指定输入文件，使用硬编码的演示数据
+2026-01-18 07:17:18.514 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 问题数据已加载: 2 个项目, 6 个任务, 6 个分配, 1 种物料, 2 个库存事件
+2026-01-18 07:17:18.621 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 正在启动求解器...
+2026-01-18 07:17:18.655 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.core.impl.solver.DefaultSolver - Solving started: time spent (21), best score (-4init/0hard/0medium/0soft), environment mode (REPRODUCIBLE), move thread count (NONE), random (JDK with seed 0).
+2026-01-18 07:17:38.801 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:17:38.802 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -        OptaPlanner 项目任务排程求解器
+2026-01-18 07:17:38.803 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:17:38.803 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 未指定输入文件，使用硬编码的演示数据
+2026-01-18 07:17:38.948 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 问题数据已加载: 2 个项目, 6 个任务, 6 个分配, 1 种物料, 2 个库存事件
+2026-01-18 07:17:39.054 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 正在启动求解器...
+2026-01-18 07:17:39.086 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.core.impl.solver.DefaultSolver - Solving started: time spent (19), best score (-4init/0hard/0medium/0soft), environment mode (REPRODUCIBLE), move thread count (NONE), random (JDK with seed 0).
+2026-01-18 07:18:07.257 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:18:07.258 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -        OptaPlanner 项目任务排程求解器
+2026-01-18 07:18:07.258 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:18:07.258 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 未指定输入文件，使用硬编码的演示数据
+2026-01-18 07:18:07.398 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 问题数据已加载: 2 个项目, 6 个任务, 6 个分配, 1 种物料, 2 个库存事件
+2026-01-18 07:18:07.509 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 正在启动求解器...
+2026-01-18 07:18:07.540 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.core.impl.solver.DefaultSolver - Solving started: time spent (18), best score (-4init/0hard/0medium/0soft), environment mode (REPRODUCIBLE), move thread count (NONE), random (JDK with seed 0).
+2026-01-18 07:18:07.557 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.schduler.calendar.WorkCalendar - Using default work calendar configuration: Day shift 08-20 (breaks: 12-13, 18-19), Night shift 20-08
+2026-01-18 07:18:07.625 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.c.i.c.DefaultConstructionHeuristicPhase - Construction Heuristic phase (0) ended: time spent (103), best score (0hard/0medium/-5soft), score calculation speed (18461/sec), step total (2).
+2026-01-18 07:18:17.522 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.c.i.l.DefaultLocalSearchPhase - Local Search phase (1) ended: time spent (10000), best score (0hard/0medium/-5soft), score calculation speed (651274/sec), step total (9008).
+2026-01-18 07:18:17.524 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.core.impl.solver.DefaultSolver - Solving ended: time spent (10000), best score (0hard/0medium/-5soft), score calculation speed (644515/sec), phase total (2), environment mode (REPRODUCIBLE), move thread count (NONE).
+2026-01-18 07:18:17.524 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:18:17.524 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 求解完成！耗时: 10015 毫秒 (10.015 秒)
+2026-01-18 07:18:17.524 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 最终评分: 0hard/0medium/-5soft
+2026-01-18 07:18:17.524 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:18:17.524 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 
+2026-01-18 07:18:17.525 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ==================== 排程结果汇总 ====================
+2026-01-18 07:18:17.525 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 项目数量: 2
+2026-01-18 07:18:17.525 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   - 项目 0 (发布日期: 0, 关键路径工期: 10)
+2026-01-18 07:18:17.525 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   - 项目 1 (发布日期: 0, 关键路径工期: 10)
+2026-01-18 07:18:17.525 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 任务总数: 6
+2026-01-18 07:18:17.526 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   - 标准任务: 2
+2026-01-18 07:18:17.526 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   - 源/汇任务: 4
+2026-01-18 07:18:17.526 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 资源数量: 0
+2026-01-18 07:18:17.526 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 物料种类: 1
+2026-01-18 07:18:17.526 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 库存事件: 2
+2026-01-18 07:18:17.527 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:18:17.527 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 
+2026-01-18 07:18:17.527 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ==================== 任务分配详情 ====================
+2026-01-18 07:18:17.527 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 
+2026-01-18 07:18:17.527 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 【项目 1】
+2026-01-18 07:18:17.527 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ┌────────────────────────────────────────────────────────────┐
+2026-01-18 07:18:17.528 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │ 任务 3 [起点] - Hour 0
+2026-01-18 07:18:17.528 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │ 任务 4 [标准] - 执行模式: 4, 延迟: 0 小时
+2026-01-18 07:18:17.528 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │   └─ 时间段: Hour 0 → Hour 3 (工期: 3 小时)
+2026-01-18 07:18:17.529 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │ 任务 5 [终点] - Hour 3
+2026-01-18 07:18:17.529 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │
+2026-01-18 07:18:17.529 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │ 项目完工: Hour 3 (计划: Hour 10, 延迟: 0 小时)
+2026-01-18 07:18:17.529 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - └────────────────────────────────────────────────────────────┘
+2026-01-18 07:18:17.529 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 
+2026-01-18 07:18:17.529 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 【项目 0】
+2026-01-18 07:18:17.530 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ┌────────────────────────────────────────────────────────────┐
+2026-01-18 07:18:17.530 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │ 任务 0 [起点] - Hour 0
+2026-01-18 07:18:17.530 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │ 任务 1 [标准] - 执行模式: 1, 延迟: 0 小时
+2026-01-18 07:18:17.530 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │   └─ 时间段: Hour 0 → Hour 5 (工期: 5 小时)
+2026-01-18 07:18:17.530 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │ 任务 2 [终点] - Hour 5
+2026-01-18 07:18:17.530 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │
+2026-01-18 07:18:17.531 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - │ 项目完工: Hour 5 (计划: Hour 10, 延迟: 0 小时)
+2026-01-18 07:18:17.531 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - └────────────────────────────────────────────────────────────┘
+2026-01-18 07:18:17.531 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 
+2026-01-18 07:18:17.531 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
+2026-01-18 07:18:17.531 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 
+2026-01-18 07:18:17.531 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ==================== 库存时间线 (Hour 0~5) ====================
+2026-01-18 07:18:17.532 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 
+2026-01-18 07:18:17.532 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 【物料: WIP_A (初始库存: 0)】
+2026-01-18 07:18:17.532 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 库存变动事件:
+2026-01-18 07:18:17.532 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   Hour 0 : 消耗 7 件
+2026-01-18 07:18:17.532 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 库存余额曲线:
+2026-01-18 07:18:17.533 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   Hour 0 : 库存   -7 件 ⚠️缺货
+2026-01-18 07:18:17.533 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   Hour 5 : 库存   -7 件 ⚠️缺货
+2026-01-18 07:18:17.533 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] WARN  c.i.s.app.ProjectJobSchedulingApp -   ⚠️ 警告: 物料 WIP_A 在某些时间点出现库存不足！
+2026-01-18 07:18:17.533 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - 
+2026-01-18 07:18:17.534 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ====================================================
