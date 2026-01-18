@@ -437,7 +437,7 @@ public class ProjectJobSchedulingApp {
                 int projectDelay = Math.max(0, actualEnd - plannedEnd);
                 
                 LOGGER.info("│");
-                LOGGER.info("│ 项目完工: Day {} (计划: Day {}, 延迟: {} 小时)", 
+                LOGGER.info("│ 项目完工: Hour {} (计划: Hour {}, 延迟: {} 小时)", 
                     actualEnd, plannedEnd, projectDelay);
             }
             

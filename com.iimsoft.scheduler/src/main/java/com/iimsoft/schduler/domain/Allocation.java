@@ -135,8 +135,13 @@ public class Allocation extends AbstractPersistable {
             return null;
         }
         Integer startHour = getStartDate();
-        if (startHour == null || executionMode == null) {
+        if (startHour == null) {
             return null;
+        }
+        if (executionMode == null) {
+            // During construction phase, execution mode might not be assigned yet
+            // Return startHour as a safe default (0 duration)
+            return startHour;
         }
         
         int requiredWorkingHours = executionMode.getDuration();
@@ -172,6 +177,9 @@ public class Allocation extends AbstractPersistable {
         
         if (iterations >= maxIterations) {
             // Safety fallback: if we can't find enough working hours in a year, just return a far future date
+            // This should never happen with a properly configured work calendar
+            System.err.println("WARNING: Could not find " + requiredWorkingHours + 
+                " working hours starting from hour " + startHour + " within " + maxIterations + " hours");
             return startHour + requiredWorkingHours * 2;
         }
         

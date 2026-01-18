@@ -20,7 +20,10 @@ public class WorkCalendar {
     private static WorkCalendarConfig config;
     
     static {
+        System.out.println("[WorkCalendar] Class loading, initializing config...");
         initializeConfig();
+        System.out.println("[WorkCalendar] Config initialized with " + 
+            (config != null ? config.getShifts().size() : 0) + " shifts");
     }
 
     /**
@@ -79,6 +82,16 @@ public class WorkCalendar {
     public static boolean isWorkingHour(int absoluteHour) {
         if (absoluteHour < 0) {
             return false;
+        }
+        
+        // Ensure config is initialized
+        if (config == null || config.getShifts() == null || config.getShifts().isEmpty()) {
+            LOGGER.warn("WorkCalendar config is null or empty, reinitializing...");
+            initializeConfig();
+            if (config == null || config.getShifts() == null || config.getShifts().isEmpty()) {
+                LOGGER.error("Failed to initialize WorkCalendar config, returning false for all hours");
+                return false;
+            }
         }
         
         // Convert absolute hour to hour of day (0-23)
