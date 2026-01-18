@@ -411,16 +411,16 @@ public class ProjectJobSchedulingApp {
                 Integer end = a.getEndDate();
                 
                 if (a.getJobType() == JobType.STANDARD) {
-                    LOGGER.info("│ 任务 {} [{}] - 执行模式: {}, 延迟: {} 天", 
+                    LOGGER.info("│ 任务 {} [{}] - 执行模式: {}, 延迟: {} 小时", 
                         a.getJob().getId(), jobTypeStr, 
                         mode != null ? mode.getId() : "未分配",
                         delay != null ? delay : "?");
-                    LOGGER.info("│   └─ 时间段: Day {} → Day {} (工期: {} 天)",
+                    LOGGER.info("│   └─ 时间段: Hour {} → Hour {} (工期: {} 小时)",
                         start != null ? start : "?",
                         end != null ? end : "?",
                         (start != null && end != null) ? (end - start) : "?");
                 } else {
-                    LOGGER.info("│ 任务 {} [{}] - Day {}", 
+                    LOGGER.info("│ 任务 {} [{}] - Hour {}", 
                         a.getJob().getId(), jobTypeStr,
                         start != null ? start : "?");
                 }
@@ -437,7 +437,7 @@ public class ProjectJobSchedulingApp {
                 int projectDelay = Math.max(0, actualEnd - plannedEnd);
                 
                 LOGGER.info("│");
-                LOGGER.info("│ 项目完工: Day {} (计划: Day {}, 延迟: {} 天)", 
+                LOGGER.info("│ 项目完工: Hour {} (计划: Hour {}, 延迟: {} 小时)", 
                     actualEnd, plannedEnd, projectDelay);
             }
             
@@ -469,12 +469,12 @@ public class ProjectJobSchedulingApp {
 
         int horizon = calculateHorizon(solution);
         LOGGER.info("");
-        LOGGER.info("==================== 库存时间线 (Day 0~{}) ====================", horizon);
+        LOGGER.info("==================== 库存时间线 (Hour 0~{}) ====================", horizon);
 
         for (Object itemObj : solution.getItemList()) {
             com.iimsoft.schduler.domain.Item item = (com.iimsoft.schduler.domain.Item) itemObj;
 
-            java.util.Map<Integer, Integer> deltaByDay = new java.util.HashMap<>();
+            java.util.Map<Integer, Integer> deltaByHour = new java.util.HashMap<>();
             for (Object eObj : solution.getInventoryEventList()) {
                 com.iimsoft.schduler.domain.InventoryEvent e = (com.iimsoft.schduler.domain.InventoryEvent) eObj;
                 if (e.getItem() == null || e.getEventDate() == null) {
@@ -483,34 +483,34 @@ public class ProjectJobSchedulingApp {
                 if (!e.getItem().equals(item)) {
                     continue;
                 }
-                deltaByDay.merge(e.getEventDate(), e.getQuantity(), Integer::sum);
+                deltaByHour.merge(e.getEventDate(), e.getQuantity(), Integer::sum);
             }
 
             LOGGER.info("");
             LOGGER.info("【物料: {} (初始库存: {})】", item.getCode(), item.getInitialStock());
             
-            if (!deltaByDay.isEmpty()) {
+            if (!deltaByHour.isEmpty()) {
                 LOGGER.info("库存变动事件:");
-                deltaByDay.keySet().stream().sorted().forEach(day -> {
-                    int delta = deltaByDay.get(day);
+                deltaByHour.keySet().stream().sorted().forEach(hour -> {
+                    int delta = deltaByHour.get(hour);
                     String deltaStr = delta > 0 ? "+" + delta : String.valueOf(delta);
                     String action = delta > 0 ? "生产" : "消耗";
-                    LOGGER.info("  Day {} : {} {} 件", day, action, Math.abs(delta));
+                    LOGGER.info("  Hour {} : {} {} 件", hour, action, Math.abs(delta));
                 });
             }
 
             LOGGER.info("库存余额曲线:");
             int balance = item.getInitialStock();
             boolean hasNegative = false;
-            for (int day = 0; day <= horizon; day++) {
-                int delta = deltaByDay.getOrDefault(day, 0);
+            for (int hour = 0; hour <= horizon; hour++) {
+                int delta = deltaByHour.getOrDefault(hour, 0);
                 balance += delta;
                 String balanceStr = String.format("%4d", balance);
                 String indicator = balance < 0 ? " ⚠️缺货" : (balance == 0 ? " ⚡临界" : "");
                 if (balance < 0) hasNegative = true;
                 
-                if (delta != 0 || day == 0 || day == horizon) {
-                    LOGGER.info("  Day {:2d} : 库存 {} 件{}", day, balanceStr, indicator);
+                if (delta != 0 || hour == 0 || hour == horizon) {
+                    LOGGER.info("  Hour {} : 库存 {} 件{}", hour, balanceStr, indicator);
                 }
             }
             

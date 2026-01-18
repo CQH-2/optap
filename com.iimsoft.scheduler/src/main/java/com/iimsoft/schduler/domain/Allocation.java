@@ -18,6 +18,7 @@ import com.iimsoft.schduler.domain.solver.DelayStrengthComparator;
 import com.iimsoft.schduler.domain.solver.ExecutionModeStrengthWeightFactory;
 import com.iimsoft.schduler.domain.solver.NotSourceOrSinkAllocationFilter;
 import com.iimsoft.schduler.domain.solver.PredecessorsDoneDateUpdatingVariableListener;
+import com.iimsoft.schduler.calendar.WorkCalendar;
 
 import com.fasterxml.jackson.annotation.JsonIdentityInfo;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -35,7 +36,7 @@ public class Allocation extends AbstractPersistable {
 
     // Planning variables: changes during planning, between score calculations.
     private ExecutionMode executionMode;
-    private Integer delay; // In days
+    private Integer delay; // In hours (time between predecessorsDoneDate and start of actual work)
 
     // Shadow variables
     private Integer predecessorsDoneDate;
@@ -131,11 +132,36 @@ public class Allocation extends AbstractPersistable {
 
     @JsonIgnore
     public Integer getEndDate() {
-        if (predecessorsDoneDate == null) {
+        Integer startHour = getStartDate();
+        if (startHour == null || executionMode == null) {
             return null;
         }
-        return predecessorsDoneDate + (delay == null ? 0 : delay)
-                + (executionMode == null ? 0 : executionMode.getDuration());
+        
+        int duration = executionMode.getDuration();
+        if (duration == 0) {
+            return startHour;
+        }
+        
+        // Calculate end hour by counting effective working hours
+        WorkCalendar calendar = WorkCalendar.getInstance();
+        int effectiveHours = 0;
+        int currentHour = startHour;
+        int maxIterations = 365 * 24; // Safety: max ~365 days to prevent infinite loop
+        
+        while (effectiveHours < duration && maxIterations > 0) {
+            if (calendar.isWorkingHour(currentHour)) {
+                effectiveHours++;
+            }
+            currentHour++;
+            maxIterations--;
+        }
+        
+        if (maxIterations == 0) {
+            // Safety fallback: if we hit max iterations, just add duration directly
+            return startHour + duration;
+        }
+        
+        return currentHour; // [start, end) semantics
     }
 
     @JsonIgnore
@@ -170,7 +196,7 @@ public class Allocation extends AbstractPersistable {
     @ValueRangeProvider
     @JsonIgnore
     public CountableValueRange<Integer> getDelayRange() {
-        return ValueRangeFactory.createIntValueRange(0, 500);
+        return ValueRangeFactory.createIntValueRange(0, 720); // Hours: 0 to 720 (30 days)
     }
 
 }

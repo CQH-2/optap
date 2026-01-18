@@ -18,12 +18,13 @@ import com.iimsoft.schduler.domain.Project;
 import com.iimsoft.schduler.domain.ResourceRequirement;
 import com.iimsoft.schduler.domain.Schedule;
 import com.iimsoft.schduler.domain.resource.Resource;
+import com.iimsoft.schduler.calendar.WorkCalendar;
 
 /**
  * Incremental score calculator that supports:
  *
  * Hard:
- *  - Renewable resource capacity per day (same idea as ConstraintProvider version).
+ *  - Renewable resource capacity per hour (only working hours count).
  *  - Nonrenewable resource capacity (total consumption <= capacity).
  *  - Route-C inventory: inventory balance of each Item must never drop below 0 over time.
  *
@@ -37,7 +38,7 @@ import com.iimsoft.schduler.domain.resource.Resource;
  *  - Inventory "prefix sum over time" is much easier and faster to maintain via trackers (InventoryTracker).
  *
  * IMPORTANT:
- *  - We cache each InventoryEvent's last effective day (eventLastDayMap) to avoid retracting from a wrong day
+ *  - We cache each InventoryEvent's last effective hour (eventLastHourMap) to avoid retracting from a wrong hour
  *    when the allocation schedule changes.
  */
 public class FactoryInventoryIncrementalScoreCalculator implements IncrementalScoreCalculator<Schedule, HardMediumSoftScore> {
@@ -46,7 +47,7 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
     // Resource capacity tracking
     // -----------------------------
 
-    /** For renewable resources: resource -> (day -> usedCapacity) */
+    /** For renewable resources: resource -> (hour -> usedCapacity) */
     private final Map<Resource, Map<Integer, Integer>> renewableUsedMap = new HashMap<>();
 
     /** For nonrenewable resources: resource -> usedTotal */
@@ -58,7 +59,7 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
 
     private Map<Item, InventoryTracker> inventoryTrackerMap;
     private Map<Allocation, List<InventoryEvent>> allocationToEventListMap;
-    private Map<InventoryEvent, Integer> eventLastDayMap;
+    private Map<InventoryEvent, Integer> eventLastHourMap;
 
     // -----------------------------
     // Project delay + makespan tracking
@@ -94,14 +95,14 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         }
 
         allocationToEventListMap = new HashMap<>();
-        eventLastDayMap = new HashMap<>();
+        eventLastHourMap = new HashMap<>();
         if (schedule.getInventoryEventList() != null) {
             for (InventoryEvent event : schedule.getInventoryEventList()) {
                 if (event.getAllocation() == null) {
                     continue;
                 }
                 allocationToEventListMap.computeIfAbsent(event.getAllocation(), k -> new ArrayList<>()).add(event);
-                eventLastDayMap.put(event, null); // unknown until first insert
+                eventLastHourMap.put(event, null); // unknown until first insert
             }
         }
 
@@ -191,23 +192,29 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
             return;
         }
 
-        // For each resource requirement of the chosen mode, update renewable per-day usage or nonrenewable total usage.
+        // For each resource requirement of the chosen mode, update renewable per-hour usage or nonrenewable total usage.
         if (mode.getResourceRequirementList() == null) {
             return;
         }
+        
+        WorkCalendar calendar = WorkCalendar.getInstance();
+        
         for (ResourceRequirement rr : mode.getResourceRequirementList()) {
             Resource resource = rr.getResource();
             int req = rr.getRequirement();
 
             if (resource.isRenewable()) {
-                Map<Integer, Integer> usedPerDay = renewableUsedMap.computeIfAbsent(resource, r -> new HashMap<>());
-                for (int day = start; day < end; day++) {
-                    int oldUsed = usedPerDay.getOrDefault(day, 0);
-                    int newUsed = oldUsed + req;
+                Map<Integer, Integer> usedPerHour = renewableUsedMap.computeIfAbsent(resource, r -> new HashMap<>());
+                // Only count working hours for renewable resources
+                for (int hour = start; hour < end; hour++) {
+                    if (calendar.isWorkingHour(hour)) {
+                        int oldUsed = usedPerHour.getOrDefault(hour, 0);
+                        int newUsed = oldUsed + req;
 
-                    hardScore += renewableOveruseDelta(resource, oldUsed, newUsed);
+                        hardScore += renewableOveruseDelta(resource, oldUsed, newUsed);
 
-                    usedPerDay.put(day, newUsed);
+                        usedPerHour.put(hour, newUsed);
+                    }
                 }
             } else {
                 int oldUsed = nonrenewableUsedMap.getOrDefault(resource, 0);
@@ -234,25 +241,31 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         if (mode.getResourceRequirementList() == null) {
             return;
         }
+        
+        WorkCalendar calendar = WorkCalendar.getInstance();
+        
         for (ResourceRequirement rr : mode.getResourceRequirementList()) {
             Resource resource = rr.getResource();
             int req = rr.getRequirement();
 
             if (resource.isRenewable()) {
-                Map<Integer, Integer> usedPerDay = renewableUsedMap.get(resource);
-                if (usedPerDay == null) {
+                Map<Integer, Integer> usedPerHour = renewableUsedMap.get(resource);
+                if (usedPerHour == null) {
                     continue;
                 }
-                for (int day = start; day < end; day++) {
-                    int oldUsed = usedPerDay.getOrDefault(day, 0);
-                    int newUsed = oldUsed - req;
+                // Only count working hours for renewable resources
+                for (int hour = start; hour < end; hour++) {
+                    if (calendar.isWorkingHour(hour)) {
+                        int oldUsed = usedPerHour.getOrDefault(hour, 0);
+                        int newUsed = oldUsed - req;
 
-                    hardScore += renewableOveruseDelta(resource, oldUsed, newUsed);
+                        hardScore += renewableOveruseDelta(resource, oldUsed, newUsed);
 
-                    if (newUsed == 0) {
-                        usedPerDay.remove(day);
-                    } else {
-                        usedPerDay.put(day, newUsed);
+                        if (newUsed == 0) {
+                            usedPerHour.remove(hour);
+                        } else {
+                            usedPerHour.put(hour, newUsed);
+                        }
                     }
                 }
             } else {
@@ -271,7 +284,7 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
     }
 
     /**
-     * Computes change in hardScore due to changing used from oldUsed to newUsed for a renewable resource at ONE day.
+     * Computes change in hardScore due to changing used from oldUsed to newUsed for a renewable resource at ONE hour.
      * Score convention: hardScore is <= 0; overuse of X => -X.
      */
     private int renewableOveruseDelta(Resource resource, int oldUsed, int newUsed) {
@@ -302,17 +315,17 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
             return;
         }
         for (InventoryEvent event : events) {
-            Integer day = computeEventDay(event);
-            eventLastDayMap.put(event, day);
+            Integer hour = computeEventHour(event);
+            eventLastHourMap.put(event, hour);
 
-            if (day == null) {
+            if (hour == null) {
                 continue;
             }
             InventoryTracker tracker = getOrCreateTracker(event.getItem());
 
             // Adjust score by removing old contribution, applying delta, then adding new contribution
             hardScore -= tracker.getHardScoreContribution();
-            tracker.addDelta(day, event.getQuantity());
+            tracker.addDelta(hour, event.getQuantity());
             hardScore += tracker.getHardScoreContribution();
         }
     }
@@ -323,16 +336,16 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
             return;
         }
         for (InventoryEvent event : events) {
-            Integer lastDay = eventLastDayMap.get(event); // cached, safe
-            eventLastDayMap.put(event, null);
+            Integer lastHour = eventLastHourMap.get(event); // cached, safe
+            eventLastHourMap.put(event, null);
 
-            if (lastDay == null) {
+            if (lastHour == null) {
                 continue;
             }
             InventoryTracker tracker = getOrCreateTracker(event.getItem());
 
             hardScore -= tracker.getHardScoreContribution();
-            tracker.removeDelta(lastDay, event.getQuantity());
+            tracker.removeDelta(lastHour, event.getQuantity());
             hardScore += tracker.getHardScoreContribution();
         }
     }
@@ -346,7 +359,7 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         return tracker;
     }
 
-    private Integer computeEventDay(InventoryEvent event) {
+    private Integer computeEventHour(InventoryEvent event) {
         if (event.getAllocation() == null) {
             return null;
         }

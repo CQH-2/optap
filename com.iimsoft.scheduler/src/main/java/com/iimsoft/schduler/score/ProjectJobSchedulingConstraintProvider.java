@@ -87,13 +87,15 @@ public class ProjectJobSchedulingConstraintProvider implements ConstraintProvide
                  * 这里使用 flattenLast((resourceReq, allocation) -> days...) 的写法，
                  * 避免因为 raw List 等原因导致 lambda 推断成 Object，进而出现 getRequirement() 找不到的编译错误。
                  */
-                .flattenLast(( allocation) -> IntStream.range(allocation.getStartDate(), allocation.getEndDate())
-                        .boxed()
-                        .collect(Collectors.toList()))
-                // 以 (resource, day) 聚合：求当天该资源的总使用量
-                .groupBy((resourceReq, day) -> resourceReq.getResource(),
-                        (resourceReq, day) -> day,
-                        ConstraintCollectors.sum((resourceReq, day) -> resourceReq.getRequirement()))
+                .flattenLast((allocation) -> {
+                    return IntStream.range(allocation.getStartDate(), allocation.getEndDate())
+                            .boxed()
+                            .collect(Collectors.toList());
+                })
+                // 以 (resource, hour) 聚合：求当前小时该资源的总使用量
+                .groupBy((ResourceRequirement resourceReq, Integer hour) -> resourceReq.getResource(),
+                        (ResourceRequirement resourceReq, Integer hour) -> hour,
+                        ConstraintCollectors.sum((ResourceRequirement resourceReq, Integer hour) -> resourceReq.getRequirement()))
                 // 当天使用量超过 capacity：硬约束违规
                 .filter((resource, day, totalRequirement) -> totalRequirement > resource.getCapacity())
                 .penalize(HardMediumSoftScore.ONE_HARD,
