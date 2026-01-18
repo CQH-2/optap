@@ -411,16 +411,16 @@ public class ProjectJobSchedulingApp {
                 Integer end = a.getEndDate();
                 
                 if (a.getJobType() == JobType.STANDARD) {
-                    LOGGER.info("│ 任务 {} [{}] - 执行模式: {}, 延迟: {} 天", 
+                    LOGGER.info("│ 任务 {} [{}] - 执行模式: {}, 延迟: {} 小时", 
                         a.getJob().getId(), jobTypeStr, 
                         mode != null ? mode.getId() : "未分配",
                         delay != null ? delay : "?");
-                    LOGGER.info("│   └─ 时间段: Day {} → Day {} (工期: {} 天)",
+                    LOGGER.info("│   └─ 时间段: Hour {} → Hour {} (有效工时: {} 小时)",
                         start != null ? start : "?",
                         end != null ? end : "?",
                         (start != null && end != null) ? (end - start) : "?");
                 } else {
-                    LOGGER.info("│ 任务 {} [{}] - Day {}", 
+                    LOGGER.info("│ 任务 {} [{}] - Hour {}", 
                         a.getJob().getId(), jobTypeStr,
                         start != null ? start : "?");
                 }
@@ -437,7 +437,7 @@ public class ProjectJobSchedulingApp {
                 int projectDelay = Math.max(0, actualEnd - plannedEnd);
                 
                 LOGGER.info("│");
-                LOGGER.info("│ 项目完工: Day {} (计划: Day {}, 延迟: {} 天)", 
+                LOGGER.info("│ 项目完工: Day {} (计划: Day {}, 延迟: {} 小时)", 
                     actualEnd, plannedEnd, projectDelay);
             }
             
@@ -469,7 +469,7 @@ public class ProjectJobSchedulingApp {
 
         int horizon = calculateHorizon(solution);
         LOGGER.info("");
-        LOGGER.info("==================== 库存时间线 (Day 0~{}) ====================", horizon);
+        LOGGER.info("==================== 库存时间线 (Hour 0~{}) ====================", horizon);
 
         for (Object itemObj : solution.getItemList()) {
             com.iimsoft.schduler.domain.Item item = (com.iimsoft.schduler.domain.Item) itemObj;
@@ -495,7 +495,7 @@ public class ProjectJobSchedulingApp {
                     int delta = deltaByDay.get(day);
                     String deltaStr = delta > 0 ? "+" + delta : String.valueOf(delta);
                     String action = delta > 0 ? "生产" : "消耗";
-                    LOGGER.info("  Day {} : {} {} 件", day, action, Math.abs(delta));
+                    LOGGER.info("  Hour {} : {} {} 件", day, action, Math.abs(delta));
                 });
             }
 
@@ -510,7 +510,7 @@ public class ProjectJobSchedulingApp {
                 if (balance < 0) hasNegative = true;
                 
                 if (delta != 0 || day == 0 || day == horizon) {
-                    LOGGER.info("  Day {:2d} : 库存 {} 件{}", day, balanceStr, indicator);
+                    LOGGER.info("  Hour {} : 库存 {} 件{}", day, balanceStr, indicator);
                 }
             }
             

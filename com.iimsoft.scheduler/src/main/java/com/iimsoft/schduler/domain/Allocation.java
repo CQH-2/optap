@@ -35,7 +35,7 @@ public class Allocation extends AbstractPersistable {
 
     // Planning variables: changes during planning, between score calculations.
     private ExecutionMode executionMode;
-    private Integer delay; // In days
+    private Integer delay; // In hours
 
     // Shadow variables
     private Integer predecessorsDoneDate;
@@ -134,8 +134,48 @@ public class Allocation extends AbstractPersistable {
         if (predecessorsDoneDate == null) {
             return null;
         }
-        return predecessorsDoneDate + (delay == null ? 0 : delay)
-                + (executionMode == null ? 0 : executionMode.getDuration());
+        Integer startHour = getStartDate();
+        if (startHour == null || executionMode == null) {
+            return null;
+        }
+        
+        int requiredWorkingHours = executionMode.getDuration();
+        if (requiredWorkingHours == 0) {
+            return startHour;
+        }
+        
+        // Calculate end hour by advancing through working hours only
+        return calculateEndHourFromWorkingHours(startHour, requiredWorkingHours);
+    }
+    
+    /**
+     * Calculate the end hour by advancing from startHour and accumulating only working hours.
+     * Non-working hours (breaks, non-shift hours) are skipped.
+     * 
+     * @param startHour The starting absolute hour
+     * @param requiredWorkingHours The number of effective working hours needed
+     * @return The end hour (exclusive, maintaining [start, end) semantics)
+     */
+    private Integer calculateEndHourFromWorkingHours(int startHour, int requiredWorkingHours) {
+        int accumulatedWorkingHours = 0;
+        int currentHour = startHour;
+        int maxIterations = 365 * 24; // Safety limit: prevent infinite loop
+        int iterations = 0;
+        
+        while (accumulatedWorkingHours < requiredWorkingHours && iterations < maxIterations) {
+            if (com.iimsoft.schduler.calendar.WorkCalendar.isWorkingHour(currentHour)) {
+                accumulatedWorkingHours++;
+            }
+            currentHour++;
+            iterations++;
+        }
+        
+        if (iterations >= maxIterations) {
+            // Safety fallback: if we can't find enough working hours in a year, just return a far future date
+            return startHour + requiredWorkingHours * 2;
+        }
+        
+        return currentHour;
     }
 
     @JsonIgnore
@@ -170,7 +210,8 @@ public class Allocation extends AbstractPersistable {
     @ValueRangeProvider
     @JsonIgnore
     public CountableValueRange<Integer> getDelayRange() {
-        return ValueRangeFactory.createIntValueRange(0, 500);
+        // Range in hours: 0 to 720 hours (30 days worth)
+        return ValueRangeFactory.createIntValueRange(0, 720);
     }
 
 }

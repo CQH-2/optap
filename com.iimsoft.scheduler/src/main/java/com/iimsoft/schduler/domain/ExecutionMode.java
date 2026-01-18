@@ -13,7 +13,7 @@ import com.iimsoft.schduler.domain.ResourceRequirement;
 public class ExecutionMode extends AbstractPersistable {
 
     private Job job;
-    private int duration; // In days
+    private int duration; // In hours (effective working hours)
 
     public ExecutionMode() {
     }

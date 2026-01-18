@@ -69,11 +69,11 @@ public class ProjectJobSchedulingConstraintProvider implements ConstraintProvide
     }
 
     // ----------------------------------------------------------------
-    // Hard：可再生资源（按天）容量约束
+    // Hard：可再生资源（按小时）容量约束
     // ----------------------------------------------------------------
     protected Constraint renewableResourceCapacity(ConstraintFactory constraintFactory) {
         return constraintFactory.forEach(ResourceRequirement.class)
-                // 只处理可再生资源：例如设备/产线/人力（每天都有固定产能）
+                // 只处理可再生资源：例如设备/产线/人力（每小时都有固定产能）
                 .filter(ResourceRequirement::isResourceRenewable)
                 // 连接到 Allocation，得到该 resourceRequirement 在哪个 allocation 上被使用
                 .join(Allocation.class,
