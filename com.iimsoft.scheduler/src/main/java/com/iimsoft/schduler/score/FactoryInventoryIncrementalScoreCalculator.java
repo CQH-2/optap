@@ -8,18 +8,6 @@ import java.util.Map;
 import org.optaplanner.core.api.score.buildin.hardmediumsoft.HardMediumSoftScore;
 import org.optaplanner.core.api.score.calculator.IncrementalScoreCalculator;
 
-import com.iimsoft.schduler.domain.Allocation;
-import com.iimsoft.schduler.domain.ExecutionMode;
-package com.iimsoft.schduler.score;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import org.optaplanner.core.api.score.buildin.hardmediumsoft.HardMediumSoftScore;
-import org.optaplanner.core.api.score.calculator.IncrementalScoreCalculator;
-
 import com.iimsoft.schduler.calendar.WorkCalendar;
 import com.iimsoft.schduler.domain.Allocation;
 import com.iimsoft.schduler.domain.ExecutionMode;
@@ -54,7 +42,8 @@ import com.iimsoft.schduler.domain.resource.Resource;
  * - Allocation 可能跨非工作小时，但这些小时不消耗 renewable 资源
  * - 因此 renewable 资源占用只统计工作小时，不会因为跨休息导致 hard 违规
  */
-public class FactoryInventoryIncrementalScoreCalculator implements IncrementalScoreCalculator {
+public class FactoryInventoryIncrementalScoreCalculator
+    implements IncrementalScoreCalculator<Schedule, HardMediumSoftScore> {
 
     // -----------------------------
     // Resource capacity tracking
@@ -405,11 +394,6 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         }
     }
 
-    @Override
-    public HardMediumSoftScore calculateScore() {
-        return HardMediumSoftScore.of(hardScore, mediumScore, softScore);
-    }
-}
     @Override
     public HardMediumSoftScore calculateScore() {
         return HardMediumSoftScore.of(hardScore, mediumScore, softScore);
