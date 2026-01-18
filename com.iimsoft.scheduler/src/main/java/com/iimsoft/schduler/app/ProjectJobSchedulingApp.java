@@ -28,9 +28,11 @@ import com.iimsoft.schduler.domain.JobType;
 import com.iimsoft.schduler.domain.Project;
 
 /**
- * Demo runner:
- * - If an input file path is provided, load from TXT importer (original example).
- * - Otherwise, load a HARD-CODED JSON demo (Route-C inventory + cross-project supply/competition).
+ * 演示运行入口：
+ * <ul>
+ *   <li>如果传入输入文件路径，则使用 TXT 导入器加载（沿用官方示例）。</li>
+ *   <li>否则使用内置的 JSON 演示数据（路线 C 库存 + 跨项目供料/竞争）。</li>
+ * </ul>
  */
 public class ProjectJobSchedulingApp {
 

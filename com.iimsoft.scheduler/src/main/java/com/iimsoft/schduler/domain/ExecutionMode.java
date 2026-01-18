@@ -13,7 +13,12 @@ import com.iimsoft.schduler.domain.ResourceRequirement;
 public class ExecutionMode extends AbstractPersistable {
 
     private Job job;
-    private int duration; // In days
+    /**
+     * 工期（按“有效工时”计）。
+     * <p>
+     * 注意：这里的 duration 单位是“小时”，并且只统计工作小时（由 WorkCalendar 决定哪些小时可工作）。
+     */
+    private int duration;
 
     public ExecutionMode() {
     }

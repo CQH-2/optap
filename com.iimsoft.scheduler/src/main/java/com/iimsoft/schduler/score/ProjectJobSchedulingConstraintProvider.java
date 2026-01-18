@@ -53,7 +53,7 @@ public class ProjectJobSchedulingConstraintProvider implements ConstraintProvide
     // ----------------------------------------------------------------
     protected Constraint nonRenewableResourceCapacity(ConstraintFactory constraintFactory) {
         return constraintFactory.forEach(ResourceRequirement.class)
-                // 只处理不可再生资源：例如“总预算/总耗材限额”等（注意：��不是路线C库存）
+                // 只处理不可再生资源：例如“总预算/总耗材限额”等（注意：这不是路线 C 库存）
                 .filter(resourceReq -> !resourceReq.isResourceRenewable())
                 // 把资源需求和 Allocation（排程结果）按 executionMode 连接起来
                 .join(Allocation.class,

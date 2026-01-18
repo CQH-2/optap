@@ -21,26 +21,36 @@ import com.iimsoft.schduler.domain.Schedule;
 import com.iimsoft.schduler.domain.resource.Resource;
 
 /**
- * Incremental score calculator that supports:
+ * 增量评分器（IncrementalScoreCalculator），支持：
  *
- * Hard:
- *  - Renewable resource capacity per time slot (hour) [only working hours consume capacity].
- *  - Nonrenewable resource capacity (total consumption <= capacity).
- *  - Route-C inventory: inventory balance of each Item must never drop below 0 over time.
+ * <p><b>硬约束（Hard）</b>
+ * <ul>
+ *   <li>可再生资源容量：按“每小时”统计占用（但只有工作小时才消耗产能）。</li>
+ *   <li>不可再生资源容量：全周期累计消耗不超过 capacity。</li>
+ *   <li>路线 C 库存：任意时间点物料库存余额不得小于 0。</li>
+ * </ul>
  *
- * Medium:
- *  - Total project delay: max(0, sinkEndDate - projectCriticalPathEndDate).
+ * <p><b>中约束（Medium）</b>
+ * <ul>
+ *   <li>项目迟交：max(0, 项目 SINK 完工时间 - 项目关键路径完工时间)。</li>
+ * </ul>
  *
- * Soft:
- *  - Makespan: max sink end date.
+ * <p><b>软约束（Soft）</b>
+ * <ul>
+ *   <li>Makespan：最小化所有项目 SINK 的最大完工时间。</li>
+ * </ul>
  *
- * 时间单位说明（按最新需求）：
- * - startDate/endDate/delay/duration 全部按“小时”理解
- * - ExecutionMode.duration = 有效工时（只在 WorkCalendar.isWorkingHour==true 的小时计时）
+ * <p>时间单位说明（按当前实现）：
+ * <ul>
+ *   <li>startDate/endDate/delay/duration 全部按“小时”理解。</li>
+ *   <li>ExecutionMode.duration 表示“有效工时”，仅在 WorkCalendar.isWorkingHour(hour)==true 的小时计时。</li>
+ * </ul>
  *
- * 资源消耗策略（允许跨休息/跨夜班）：
- * - Allocation 可能跨非工作小时，但这些小时不消耗 renewable 资源
- * - 因此 renewable 资源占用只统计工作小时，不会因为跨休息导致 hard 违规
+ * <p>资源消耗策略（允许跨休息/跨夜班）：
+ * <ul>
+ *   <li>Allocation 可能跨非工作小时，但这些小时不消耗可再生资源。</li>
+ *   <li>因此可再生资源占用只统计工作小时，不会因为跨休息导致硬约束违规。</li>
+ * </ul>
  */
 public class FactoryInventoryIncrementalScoreCalculator
     implements IncrementalScoreCalculator<Schedule, HardMediumSoftScore> {
@@ -49,10 +59,10 @@ public class FactoryInventoryIncrementalScoreCalculator
     // Resource capacity tracking
     // -----------------------------
 
-    /** For renewable resources: resource -> (hour -> usedCapacity) */
+    /** 可再生资源：resource -> (hour -> usedCapacity) */
     private final Map renewableUsedMap = new HashMap();
 
-    /** For nonrenewable resources: resource -> usedTotal */
+    /** 不可再生资源：resource -> usedTotal */
     private final Map nonrenewableUsedMap = new HashMap();
 
     // -----------------------------
