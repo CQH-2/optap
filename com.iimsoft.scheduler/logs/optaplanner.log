@@ -1,0 +1,25 @@
+2026-01-17 10:21:46.053 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ======================================
+2026-01-17 10:21:46.058 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - Project Job Scheduling Solver
+2026-01-17 10:21:46.059 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ======================================
+2026-01-17 10:21:46.060 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - No input file specified. Using HARD-CODED JSON demo data (DTO -> domain).
+2026-01-17 10:21:46.327 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - Problem loaded: 2 projects, 6 jobs, 6 allocations, 1 items, 2 inventoryEvents
+2026-01-17 10:21:46.517 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - Starting solver...
+2026-01-17 10:21:46.555 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.core.impl.solver.DefaultSolver - Solving started: time spent (22), best score (-4init/0hard/0medium/0soft), environment mode (REPRODUCIBLE), move thread count (NONE), random (JDK with seed 0).
+2026-01-17 10:21:46.656 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.c.i.c.DefaultConstructionHeuristicPhase - Construction Heuristic phase (0) ended: time spent (123), best score (0hard/0medium/-5soft), score calculation speed (10869/sec), step total (2).
+2026-01-17 10:21:56.533 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.c.i.l.DefaultLocalSearchPhase - Local Search phase (1) ended: time spent (10000), best score (0hard/0medium/-5soft), score calculation speed (624104/sec), step total (12298).
+2026-01-17 10:21:56.536 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  o.o.core.impl.solver.DefaultSolver - Solving ended: time spent (10001), best score (0hard/0medium/-5soft), score calculation speed (616279/sec), phase total (2), environment mode (REPRODUCIBLE), move thread count (NONE).
+2026-01-17 10:21:56.537 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ======================================
+2026-01-17 10:21:56.537 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - Solving completed in 10020 ms
+2026-01-17 10:21:56.537 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - Score: 0hard/0medium/-5soft
+2026-01-17 10:21:56.538 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ======================================
+2026-01-17 10:21:56.538 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ========== Inventory Timeline (0..5) ==========
+2026-01-17 10:21:56.539 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ---- Item WIP_A (initialStock=0) events ----
+2026-01-17 10:21:56.543 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   day 0 : delta 3
+2026-01-17 10:21:56.544 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ---- Item WIP_A balance curve ----
+2026-01-17 10:21:56.544 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   day 0 : delta 3, balance 3
+2026-01-17 10:21:56.545 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   day 1 : delta 0, balance 3
+2026-01-17 10:21:56.545 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   day 2 : delta 0, balance 3
+2026-01-17 10:21:56.547 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   day 3 : delta 0, balance 3
+2026-01-17 10:21:56.548 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   day 4 : delta 0, balance 3
+2026-01-17 10:21:56.548 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp -   day 5 : delta 0, balance 3
+2026-01-17 10:21:56.549 [com.iimsoft.schduler.app.ProjectJobSchedulingApp.main()] INFO  c.i.s.app.ProjectJobSchedulingApp - ===============================================

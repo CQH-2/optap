@@ -43,17 +43,17 @@ public class ProjectJobSchedulingApp {
     }
 
     public void solve(String inputFile) {
-        LOGGER.info("======================================");
-        LOGGER.info("Project Job Scheduling Solver");
-        LOGGER.info("======================================");
+        LOGGER.info("====================================================");
+        LOGGER.info("       OptaPlanner 项目任务排程求解器");
+        LOGGER.info("====================================================");
 
         Schedule problem = loadProblem(inputFile);
         if (problem == null) {
-            LOGGER.error("Failed to load problem. Please provide a valid input file.");
+            LOGGER.error("加载问题失败，请提供有效的输入文件");
             return;
         }
 
-        LOGGER.info("Problem loaded: {} projects, {} jobs, {} allocations, {} items, {} inventoryEvents",
+        LOGGER.info("问题数据已加载: {} 个项目, {} 个任务, {} 个分配, {} 种物料, {} 个库存事件",
                 problem.getProjectList() == null ? 0 : problem.getProjectList().size(),
                 problem.getJobList() == null ? 0 : problem.getJobList().size(),
                 problem.getAllocationList() == null ? 0 : problem.getAllocationList().size(),
@@ -69,34 +69,36 @@ public class ProjectJobSchedulingApp {
 
         Solver solver = solverFactory.buildSolver();
 
-        LOGGER.info("Starting solver...");
+        LOGGER.info("正在启动求解器...");
         long startTime = System.currentTimeMillis();
         Schedule solution = (Schedule) solver.solve(problem);
         long endTime = System.currentTimeMillis();
 
-        LOGGER.info("======================================");
-        LOGGER.info("Solving completed in {} ms", (endTime - startTime));
-        LOGGER.info("Score: {}", solution.getScore());
-        LOGGER.info("======================================");
+        LOGGER.info("====================================================");
+        LOGGER.info("求解完成！耗时: {} 毫秒 ({} 秒)", (endTime - startTime), (endTime - startTime) / 1000.0);
+        LOGGER.info("最终评分: {}", solution.getScore());
+        LOGGER.info("====================================================");
 
+        printSolutionSummary(solution);
+        printAllocationDetails(solution);
         printInventoryTimeline(solution);
     }
 
     private Schedule loadProblem(String inputFile) {
         if (inputFile == null || inputFile.isEmpty()) {
-            LOGGER.info("No input file specified. Using HARD-CODED JSON demo data (DTO -> domain).");
+            LOGGER.info("未指定输入文件，使用硬编码的演示数据");
             return loadHardcodedJsonDemo();
         }
         try {
             File file = new File(inputFile);
             if (!file.exists()) {
-                LOGGER.error("Input file not found: {}", inputFile);
+                LOGGER.error("输入文件不存在: {}", inputFile);
                 return null;
             }
             ProjectJobSchedulingImporter importer = new ProjectJobSchedulingImporter();
             return importer.readSolution(file);
         } catch (Exception e) {
-            LOGGER.error("Error loading problem from file: {}", inputFile, e);
+            LOGGER.error("加载文件时出错: {}", inputFile, e);
             return null;
         }
     }
@@ -329,18 +331,145 @@ public class ProjectJobSchedulingApp {
         public String timePolicy;
     }
 
+    private void printSolutionSummary(Schedule solution) {
+        LOGGER.info("");
+        LOGGER.info("==================== 排程结果汇总 ====================");
+        
+        // 统计项目信息
+        if (solution.getProjectList() != null) {
+            LOGGER.info("项目数量: {}", solution.getProjectList().size());
+            for (Object projObj : solution.getProjectList()) {
+                Project proj = (Project) projObj;
+                LOGGER.info("  - 项目 {} (发布日期: {}, 关键路径工期: {})", 
+                    proj.getId(), proj.getReleaseDate(), proj.getCriticalPathDuration());
+            }
+        }
+        
+        // 统计任务和分配
+        if (solution.getJobList() != null && solution.getAllocationList() != null) {
+            LOGGER.info("任务总数: {}", solution.getJobList().size());
+            long standardJobs = solution.getAllocationList().stream()
+                .filter(a -> ((Allocation)a).getJobType() == JobType.STANDARD)
+                .count();
+            LOGGER.info("  - 标准任务: {}", standardJobs);
+            LOGGER.info("  - 源/汇任务: {}", solution.getJobList().size() - standardJobs);
+        }
+        
+        // 统计资源
+        if (solution.getResourceList() != null) {
+            LOGGER.info("资源数量: {}", solution.getResourceList().size());
+        }
+        
+        // 统计物料和库存事件
+        if (solution.getItemList() != null) {
+            LOGGER.info("物料种类: {}", solution.getItemList().size());
+        }
+        if (solution.getInventoryEventList() != null) {
+            LOGGER.info("库存事件: {}", solution.getInventoryEventList().size());
+        }
+        
+        LOGGER.info("====================================================");
+    }
+
+    private void printAllocationDetails(Schedule solution) {
+        if (solution.getAllocationList() == null) {
+            return;
+        }
+        
+        LOGGER.info("");
+        LOGGER.info("==================== 任务分配详情 ====================");
+        
+        // 按项目分组显示
+        Map<Project, List<Allocation>> allocationsByProject = new HashMap<>();
+        for (Object aObj : solution.getAllocationList()) {
+            Allocation a = (Allocation) aObj;
+            allocationsByProject.computeIfAbsent(a.getProject(), k -> new ArrayList<>()).add(a);
+        }
+        
+        for (Map.Entry<Project, List<Allocation>> entry : allocationsByProject.entrySet()) {
+            Project project = entry.getKey();
+            List<Allocation> allocations = entry.getValue();
+            
+            LOGGER.info("");
+            LOGGER.info("【项目 {}】", project.getId());
+            LOGGER.info("┌────────────────────────────────────────────────────────────┐");
+            
+            // 按开始时间排序
+            allocations.sort((a1, a2) -> {
+                Integer s1 = a1.getStartDate();
+                Integer s2 = a2.getStartDate();
+                if (s1 == null) return 1;
+                if (s2 == null) return -1;
+                return s1.compareTo(s2);
+            });
+            
+            for (Allocation a : allocations) {
+                String jobTypeStr = getJobTypeString(a.getJobType());
+                ExecutionMode mode = a.getExecutionMode();
+                Integer delay = a.getDelay();
+                Integer start = a.getStartDate();
+                Integer end = a.getEndDate();
+                
+                if (a.getJobType() == JobType.STANDARD) {
+                    LOGGER.info("│ 任务 {} [{}] - 执行模式: {}, 延迟: {} 天", 
+                        a.getJob().getId(), jobTypeStr, 
+                        mode != null ? mode.getId() : "未分配",
+                        delay != null ? delay : "?");
+                    LOGGER.info("│   └─ 时间段: Day {} → Day {} (工期: {} 天)",
+                        start != null ? start : "?",
+                        end != null ? end : "?",
+                        (start != null && end != null) ? (end - start) : "?");
+                } else {
+                    LOGGER.info("│ 任务 {} [{}] - Day {}", 
+                        a.getJob().getId(), jobTypeStr,
+                        start != null ? start : "?");
+                }
+            }
+            
+            // 显示项目完工情况
+            Allocation sinkAlloc = allocations.stream()
+                .filter(a -> a.getJobType() == JobType.SINK)
+                .findFirst()
+                .orElse(null);
+            if (sinkAlloc != null && sinkAlloc.getEndDate() != null) {
+                int actualEnd = sinkAlloc.getEndDate();
+                int plannedEnd = project.getReleaseDate() + project.getCriticalPathDuration();
+                int projectDelay = Math.max(0, actualEnd - plannedEnd);
+                
+                LOGGER.info("│");
+                LOGGER.info("│ 项目完工: Day {} (计划: Day {}, 延迟: {} 天)", 
+                    actualEnd, plannedEnd, projectDelay);
+            }
+            
+            LOGGER.info("└────────────────────────────────────────────────────────────┘");
+        }
+        
+        LOGGER.info("");
+        LOGGER.info("====================================================");
+    }
+    
+    private String getJobTypeString(JobType jobType) {
+        return switch (jobType) {
+            case SOURCE -> "起点";
+            case SINK -> "终点";
+            case STANDARD -> "标准";
+            default -> jobType.toString();
+        };
+    }
+
     private void printInventoryTimeline(Schedule solution) {
         if (solution.getItemList() == null || solution.getItemList().isEmpty()) {
-            LOGGER.info("No items, skip inventory timeline.");
+            LOGGER.info("无物料数据，跳过库存时间线");
             return;
         }
         if (solution.getInventoryEventList() == null || solution.getInventoryEventList().isEmpty()) {
-            LOGGER.info("No inventory events, skip inventory timeline.");
+            LOGGER.info("无库存事件，跳过库存时间线");
             return;
         }
 
         int horizon = calculateHorizon(solution);
-        LOGGER.info("========== Inventory Timeline (0..{}) ==========", horizon);
+        LOGGER.info("");
+        LOGGER.info("==================== 库存时间线 (Day 0~{}) ====================", horizon);
 
         for (Object itemObj : solution.getItemList()) {
             com.iimsoft.schduler.domain.Item item = (com.iimsoft.schduler.domain.Item) itemObj;
@@ -357,20 +486,41 @@ public class ProjectJobSchedulingApp {
                 deltaByDay.merge(e.getEventDate(), e.getQuantity(), Integer::sum);
             }
 
-            LOGGER.info("---- Item {} (initialStock={}) events ----", item.getCode(), item.getInitialStock());
-            deltaByDay.keySet().stream().sorted().forEach(day ->
-                    LOGGER.info("  day {} : delta {}", day, deltaByDay.get(day)));
+            LOGGER.info("");
+            LOGGER.info("【物料: {} (初始库存: {})】", item.getCode(), item.getInitialStock());
+            
+            if (!deltaByDay.isEmpty()) {
+                LOGGER.info("库存变动事件:");
+                deltaByDay.keySet().stream().sorted().forEach(day -> {
+                    int delta = deltaByDay.get(day);
+                    String deltaStr = delta > 0 ? "+" + delta : String.valueOf(delta);
+                    String action = delta > 0 ? "生产" : "消耗";
+                    LOGGER.info("  Day {} : {} {} 件", day, action, Math.abs(delta));
+                });
+            }
 
-            LOGGER.info("---- Item {} balance curve ----", item.getCode());
+            LOGGER.info("库存余额曲线:");
             int balance = item.getInitialStock();
+            boolean hasNegative = false;
             for (int day = 0; day <= horizon; day++) {
                 int delta = deltaByDay.getOrDefault(day, 0);
                 balance += delta;
-                LOGGER.info("  day {} : delta {}, balance {}", day, delta, balance);
+                String balanceStr = String.format("%4d", balance);
+                String indicator = balance < 0 ? " ⚠️缺货" : (balance == 0 ? " ⚡临界" : "");
+                if (balance < 0) hasNegative = true;
+                
+                if (delta != 0 || day == 0 || day == horizon) {
+                    LOGGER.info("  Day {:2d} : 库存 {} 件{}", day, balanceStr, indicator);
+                }
+            }
+            
+            if (hasNegative) {
+                LOGGER.warn("  ⚠️ 警告: 物料 {} 在某些时间点出现库存不足！", item.getCode());
             }
         }
 
-        LOGGER.info("===============================================");
+        LOGGER.info("");
+        LOGGER.info("====================================================");
     }
 
     private int calculateHorizon(Schedule solution) {
