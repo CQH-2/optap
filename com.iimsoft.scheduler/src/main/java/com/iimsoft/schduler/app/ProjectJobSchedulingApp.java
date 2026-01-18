@@ -38,7 +38,6 @@ public class ProjectJobSchedulingApp {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ProjectJobSchedulingApp.class);
 
-
     public static void main(String[] args) {
         String inputFile = args.length > 0 ? args[0] : null;
         new ProjectJobSchedulingApp().solve(inputFile);
@@ -109,16 +108,6 @@ public class ProjectJobSchedulingApp {
     // Demo JSON (DTO) -> build domain objects manually (avoids JsonIdentityInfo)
     // =====================================================================
 
-    /**
-     * 为什么不用直接 ObjectMapper.readValue(json, Schedule.class)？
-     * - 你的 domain 类上用了 @JsonIdentityInfo 解决“对象引用/循环引用”。
-     * - 但 demo JSON 里使用了裸数字引用（例如 "project": 0, "jobList": [0,1,2]），
-     *   Jackson 默认无法把裸数字解析为 Identity 引用，因此会抛 UnresolvedForwardReference。
-     *
-     * 解决方案：
-     * - JSON 仍然硬编码，但只解析成 DTO（无引用、无 Identity）。
-     * - 在 Java 里手工 new Project/Job/ExecutionMode/Allocation 并把引用关系连起来。
-     */
     private Schedule loadHardcodedJsonDemo() {
         final String json = """
             {
@@ -149,16 +138,13 @@ public class ProjectJobSchedulingApp {
             ObjectMapper mapper = new ObjectMapper();
             DemoDto dto = mapper.readValue(json, DemoDto.class);
 
-            // -----------------------------
-            // 1) Create Schedule + lists
-            // -----------------------------
             Schedule schedule = new Schedule(0L);
-            List<Project> projectList = new ArrayList<>();
-            List<Job> jobList = new ArrayList<>();
-            List<ExecutionMode> executionModeList = new ArrayList<>();
-            List<Allocation> allocationList = new ArrayList<>();
-            List<Item> itemList = new ArrayList<>();
-            List<InventoryEvent> inventoryEventList = new ArrayList<>();
+            List projectList = new ArrayList<>();
+            List jobList = new ArrayList<>();
+            List executionModeList = new ArrayList<>();
+            List allocationList = new ArrayList<>();
+            List itemList = new ArrayList<>();
+            List inventoryEventList = new ArrayList<>();
 
             schedule.setProjectList(projectList);
             schedule.setJobList(jobList);
@@ -170,11 +156,8 @@ public class ProjectJobSchedulingApp {
             schedule.setResourceList(new ArrayList<>());             // demo 不用资源
             schedule.setResourceRequirementList(new ArrayList<>());  // demo 不用资源需求
 
-            // -----------------------------
-            // 2) Projects
-            // -----------------------------
             Map<Long, Project> projectById = new HashMap<>();
-            for (DemoProject p : dto.projects) {
+            for (DemoProject p : (List<DemoProject>) dto.projects) {
                 Project project = new Project(p.id, p.releaseDate, p.criticalPathDuration);
                 project.setLocalResourceList(new ArrayList<>());
                 project.setJobList(new ArrayList<>());
@@ -182,61 +165,54 @@ public class ProjectJobSchedulingApp {
                 projectById.put(p.id, project);
             }
 
-            // -----------------------------
-            // 3) Jobs + ExecutionMode(单模式) + Project.jobList
-            // -----------------------------
             Map<Long, Job> jobById = new HashMap<>();
             Map<Long, ExecutionMode> modeByJobId = new HashMap<>();
 
-            for (DemoJob j : dto.jobs) {
+            for (DemoJob j : (List<DemoJob>) dto.jobs) {
                 Project project = projectById.get(j.projectId);
                 Job job = new Job(j.id, project);
                 job.setJobType(JobType.valueOf(j.jobType));
                 job.setExecutionModeList(new ArrayList<>());
                 job.setSuccessorJobList(new ArrayList<>());
 
-                // 每个 job 建一个 executionMode（demo 简化成单模式）
                 ExecutionMode mode = new ExecutionMode(j.id, job);
-                mode.setDuration(j.duration);
+                mode.setDuration(j.duration); // 注意：当前整体语义是“小时/有效工时”
                 mode.setResourceRequirementList(new ArrayList<>());
                 job.getExecutionModeList().add(mode);
 
                 jobList.add(job);
                 executionModeList.add(mode);
-
                 project.getJobList().add(job);
 
                 jobById.put(j.id, job);
                 modeByJobId.put(j.id, mode);
             }
 
-            // 建 successors
-            for (DemoJob j : dto.jobs) {
+            for (DemoJob j : (List<DemoJob>) dto.jobs) {
                 Job job = jobById.get(j.id);
-                for (Long succId : j.successorJobIds) {
+                for (Long succId : (List<Long>) j.successorJobIds) {
                     job.getSuccessorJobList().add(jobById.get(succId));
                 }
             }
 
-            // -----------------------------
-            // 4) Allocations (一个 job 一个 allocation)
-            // -----------------------------
             Map<Job, Allocation> allocByJob = new HashMap<>();
             Map<Long, Allocation> allocById = new HashMap<>();
             Map<Project, Allocation> sourceByProject = new HashMap<>();
             Map<Project, Allocation> sinkByProject = new HashMap<>();
 
-            for (Job job : jobList) {
+            for (Object jobObj : jobList) {
+                Job job = (Job) jobObj;
+
                 Allocation a = new Allocation(job.getId(), job);
                 a.setPredecessorAllocationList(new ArrayList<>());
                 a.setSuccessorAllocationList(new ArrayList<>());
-                // 初始影子变量，保证 start/end 有值
                 a.setPredecessorsDoneDate(job.getProject().getReleaseDate());
 
                 if (job.getJobType() == JobType.SOURCE || job.getJobType() == JobType.SINK) {
                     a.setDelay(0);
                     a.setExecutionMode((ExecutionMode) job.getExecutionModeList().get(0));
                 }
+
                 allocationList.add(a);
                 allocByJob.put(job, a);
                 allocById.put(a.getId(), a);
@@ -248,8 +224,8 @@ public class ProjectJobSchedulingApp {
                 }
             }
 
-            // 连 predecessor/successor allocation
-            for (Allocation a : allocationList) {
+            for (Object aObj : allocationList) {
+                Allocation a = (Allocation) aObj;
                 Job job = a.getJob();
                 a.setSourceAllocation(sourceByProject.get(job.getProject()));
                 a.setSinkAllocation(sinkByProject.get(job.getProject()));
@@ -260,7 +236,6 @@ public class ProjectJobSchedulingApp {
                     succAlloc.getPredecessorAllocationList().add(a);
                 }
             }
-            // 给 source 的后继们刷新 predecessorsDoneDate
             for (Allocation source : sourceByProject.values()) {
                 for (Object succAllocObj : source.getSuccessorAllocationList()) {
                     Allocation succAlloc = (Allocation) succAllocObj;
@@ -268,20 +243,14 @@ public class ProjectJobSchedulingApp {
                 }
             }
 
-            // -----------------------------
-            // 5) Items
-            // -----------------------------
             Map<Long, Item> itemById = new HashMap<>();
-            for (DemoItem i : dto.items) {
+            for (DemoItem i : (List<DemoItem>) dto.items) {
                 Item item = new Item(i.id, i.code, i.initialStock);
                 itemList.add(item);
                 itemById.put(i.id, item);
             }
 
-            // -----------------------------
-            // 6) Inventory events (绑定 allocation 与 item)
-            // -----------------------------
-            for (DemoInventoryEvent e : dto.inventoryEvents) {
+            for (DemoInventoryEvent e : (List<DemoInventoryEvent>) dto.inventoryEvents) {
                 Allocation alloc = allocById.get(e.allocationId);
                 Item item = itemById.get(e.itemId);
                 InventoryEvent event = new InventoryEvent(e.id, alloc, item, e.quantity, InventoryEventTime.valueOf(e.timePolicy));
@@ -295,14 +264,11 @@ public class ProjectJobSchedulingApp {
         }
     }
 
-    // -----------------------------
-    // DTO classes (no references)
-    // -----------------------------
     public static class DemoDto {
-        public List<DemoProject> projects;
-        public List<DemoJob> jobs;
-        public List<DemoItem> items;
-        public List<DemoInventoryEvent> inventoryEvents;
+        public List projects;
+        public List jobs;
+        public List items;
+        public List inventoryEvents;
     }
 
     public static class DemoProject {
@@ -316,7 +282,7 @@ public class ProjectJobSchedulingApp {
         public long projectId;
         public String jobType;
         public int duration;
-        public List<Long> successorJobIds;
+        public List successorJobIds;
     }
 
     public static class DemoItem {
@@ -336,40 +302,36 @@ public class ProjectJobSchedulingApp {
     private void printSolutionSummary(Schedule solution) {
         LOGGER.info("");
         LOGGER.info("==================== 排程结果汇总 ====================");
-        
-        // 统计项目信息
+
         if (solution.getProjectList() != null) {
             LOGGER.info("项目数量: {}", solution.getProjectList().size());
             for (Object projObj : solution.getProjectList()) {
                 Project proj = (Project) projObj;
-                LOGGER.info("  - 项目 {} (发布日期: {}, 关键路径工期: {})", 
-                    proj.getId(), proj.getReleaseDate(), proj.getCriticalPathDuration());
+                LOGGER.info("  - 项目 {} (发布日期: {}, 关键路径工期: {} 小时)",
+                        proj.getId(), proj.getReleaseDate(), proj.getCriticalPathDuration());
             }
         }
-        
-        // 统计任务和分配
+
         if (solution.getJobList() != null && solution.getAllocationList() != null) {
             LOGGER.info("任务总数: {}", solution.getJobList().size());
             long standardJobs = solution.getAllocationList().stream()
-                .filter(a -> ((Allocation)a).getJobType() == JobType.STANDARD)
-                .count();
+                    .filter(a -> ((Allocation) a).getJobType() == JobType.STANDARD)
+                    .count();
             LOGGER.info("  - 标准任务: {}", standardJobs);
             LOGGER.info("  - 源/汇任务: {}", solution.getJobList().size() - standardJobs);
         }
-        
-        // 统计资源
+
         if (solution.getResourceList() != null) {
             LOGGER.info("资源数量: {}", solution.getResourceList().size());
         }
-        
-        // 统计物料和库存事件
+
         if (solution.getItemList() != null) {
             LOGGER.info("物料种类: {}", solution.getItemList().size());
         }
         if (solution.getInventoryEventList() != null) {
             LOGGER.info("库存事件: {}", solution.getInventoryEventList().size());
         }
-        
+
         LOGGER.info("====================================================");
     }
 
@@ -377,26 +339,24 @@ public class ProjectJobSchedulingApp {
         if (solution.getAllocationList() == null) {
             return;
         }
-        
+
         LOGGER.info("");
         LOGGER.info("==================== 任务分配详情 ====================");
-        
-        // 按项目分组显示
+
         Map<Project, List<Allocation>> allocationsByProject = new HashMap<>();
         for (Object aObj : solution.getAllocationList()) {
             Allocation a = (Allocation) aObj;
             allocationsByProject.computeIfAbsent(a.getProject(), k -> new ArrayList<>()).add(a);
         }
-        
+
         for (Map.Entry<Project, List<Allocation>> entry : allocationsByProject.entrySet()) {
             Project project = entry.getKey();
             List<Allocation> allocations = entry.getValue();
-            
+
             LOGGER.info("");
             LOGGER.info("【项目 {}】", project.getId());
             LOGGER.info("┌────────────────────────────────────────────────────────────┐");
-            
-            // 按开始时间排序
+
             allocations.sort((a1, a2) -> {
                 Integer s1 = a1.getStartDate();
                 Integer s2 = a2.getStartDate();
@@ -404,58 +364,56 @@ public class ProjectJobSchedulingApp {
                 if (s2 == null) return -1;
                 return s1.compareTo(s2);
             });
-            
+
             for (Allocation a : allocations) {
                 String jobTypeStr = getJobTypeString(a.getJobType());
                 ExecutionMode mode = a.getExecutionMode();
                 Integer delay = a.getDelay();
                 Integer start = a.getStartDate();
                 Integer end = a.getEndDate();
-                
+
                 if (a.getJobType() == JobType.STANDARD) {
-                    LOGGER.info("│ 任务 {} [{}] - 执行模式: {}, 延迟: {} 天", 
-                        a.getJob().getId(), jobTypeStr, 
-                        mode != null ? mode.getId() : "未分配",
-                        delay != null ? delay : "?");
-                    LOGGER.info("│   └─ 时间段: Day {} → Day {} (工期: {} 天)",
-                        start != null ? start : "?",
-                        end != null ? end : "?",
-                        (start != null && end != null) ? (end - start) : "?");
+                    LOGGER.info("│ 任务 {} [{}] - 执行模式: {}, 延迟: {} 小时",
+                            a.getJob().getId(), jobTypeStr,
+                            mode != null ? mode.getId() : "未分配",
+                            delay != null ? delay : "?");
+                    LOGGER.info("│   └─ 时间段: Hour {} → Hour {} (历时: {} 小时)",
+                            start != null ? start : "?",
+                            end != null ? end : "?",
+                            (start != null && end != null) ? (end - start) : "?");
                 } else {
-                    LOGGER.info("│ 任务 {} [{}] - Day {}", 
-                        a.getJob().getId(), jobTypeStr,
-                        start != null ? start : "?");
+                    LOGGER.info("│ 任务 {} [{}] - Hour {}",
+                            a.getJob().getId(), jobTypeStr,
+                            start != null ? start : "?");
                 }
             }
-            
-            // 显示项目完工情况
+
             Allocation sinkAlloc = allocations.stream()
-                .filter(a -> a.getJobType() == JobType.SINK)
-                .findFirst()
-                .orElse(null);
+                    .filter(a -> a.getJobType() == JobType.SINK)
+                    .findFirst()
+                    .orElse(null);
             if (sinkAlloc != null && sinkAlloc.getEndDate() != null) {
                 int actualEnd = sinkAlloc.getEndDate();
                 int plannedEnd = project.getReleaseDate() + project.getCriticalPathDuration();
                 int projectDelay = Math.max(0, actualEnd - plannedEnd);
-                
+
                 LOGGER.info("│");
-                LOGGER.info("│ 项目完工: Day {} (计划: Day {}, 延迟: {} 天)", 
-                    actualEnd, plannedEnd, projectDelay);
+                LOGGER.info("│ 项目完工: Hour {} (计划: Hour {}, 延迟: {} 小时)",
+                        actualEnd, plannedEnd, projectDelay);
             }
-            
+
             LOGGER.info("└────────────────────────────────────────────────────────────┘");
         }
-        
+
         LOGGER.info("");
         LOGGER.info("====================================================");
     }
-    
+
     private String getJobTypeString(JobType jobType) {
         return switch (jobType) {
             case SOURCE -> "起点";
             case SINK -> "终点";
             case STANDARD -> "标准";
-            default -> jobType.toString();
         };
     }
 
@@ -471,53 +429,52 @@ public class ProjectJobSchedulingApp {
 
         int horizon = calculateHorizon(solution);
         LOGGER.info("");
-        LOGGER.info("==================== 库存时间线 (Day 0~{}) ====================", horizon);
+        LOGGER.info("==================== 库存时间线 (Hour 0~{}) ====================", horizon);
 
         for (Object itemObj : solution.getItemList()) {
-            com.iimsoft.schduler.domain.Item item = (com.iimsoft.schduler.domain.Item) itemObj;
+            Item item = (Item) itemObj;
 
-            java.util.Map<Integer, Integer> deltaByDay = new java.util.HashMap<>();
+            Map<Integer, Integer> deltaByHour = new HashMap<>();
             for (Object eObj : solution.getInventoryEventList()) {
-                com.iimsoft.schduler.domain.InventoryEvent e = (com.iimsoft.schduler.domain.InventoryEvent) eObj;
+                InventoryEvent e = (InventoryEvent) eObj;
                 if (e.getItem() == null || e.getEventDate() == null) {
                     continue;
                 }
                 if (!e.getItem().equals(item)) {
                     continue;
                 }
-                deltaByDay.merge(e.getEventDate(), e.getQuantity(), Integer::sum);
+                deltaByHour.merge(e.getEventDate(), e.getQuantity(), Integer::sum);
             }
 
             LOGGER.info("");
             LOGGER.info("【物料: {} (初始库存: {})】", item.getCode(), item.getInitialStock());
-            
-            if (!deltaByDay.isEmpty()) {
+
+            if (!deltaByHour.isEmpty()) {
                 LOGGER.info("库存变动事件:");
-                deltaByDay.keySet().stream().sorted().forEach(day -> {
-                    int delta = deltaByDay.get(day);
-                    String deltaStr = delta > 0 ? "+" + delta : String.valueOf(delta);
+                deltaByHour.keySet().stream().sorted().forEach(hour -> {
+                    int delta = deltaByHour.get(hour);
                     String action = delta > 0 ? "生产" : "消耗";
-                    LOGGER.info("  Day {} : {} {} 件", day, action, Math.abs(delta));
+                    LOGGER.info("  Hour {} : {} {} 件", hour, action, Math.abs(delta));
                 });
             }
 
             LOGGER.info("库存余额曲线:");
             int balance = item.getInitialStock();
             boolean hasNegative = false;
-            for (int day = 0; day <= horizon; day++) {
-                int delta = deltaByDay.getOrDefault(day, 0);
+            for (int hour = 0; hour <= horizon; hour++) {
+                int delta = deltaByHour.getOrDefault(hour, 0);
                 balance += delta;
-                String balanceStr = String.format("%4d", balance);
-                String indicator = balance < 0 ? " ⚠️缺货" : (balance == 0 ? " ⚡临界" : "");
+                String indicator = balance < 0 ? " 缺货" : (balance == 0 ? " 临界" : "");
                 if (balance < 0) hasNegative = true;
-                
-                if (delta != 0 || day == 0 || day == horizon) {
-                    LOGGER.info("  Day {:2d} : 库存 {} 件{}", day, balanceStr, indicator);
+
+                if (delta != 0 || hour == 0 || hour == horizon) {
+                    // 修复：slf4j 不支持 {:2d}，用标准 {} 占位符
+                    LOGGER.info("  Hour {} : 库存 {} 件{}", hour, balance, indicator);
                 }
             }
-            
+
             if (hasNegative) {
-                LOGGER.warn("  ⚠️ 警告: 物料 {} 在某些时间点出现库存不足！", item.getCode());
+                LOGGER.warn("  警告: 物料 {} 在某些时间点出现库存不足！", item.getCode());
             }
         }
 
@@ -531,7 +488,7 @@ public class ProjectJobSchedulingApp {
             return max;
         }
         for (Object aObj : solution.getAllocationList()) {
-            com.iimsoft.schduler.domain.Allocation a = (com.iimsoft.schduler.domain.Allocation) aObj;
+            Allocation a = (Allocation) aObj;
             Integer end = a.getEndDate();
             if (end != null && end > max) {
                 max = end;
