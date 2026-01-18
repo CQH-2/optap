@@ -1,88 +1,96 @@
 package com.iimsoft.schduler.calendar;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.iimsoft.schduler.api.dto.SolveRequest;
 
+import java.time.LocalDate;
 import java.util.BitSet;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * 工作日历（按小时判断某个 absoluteHour 是否可工作）。
  *
- * 配置来源（优先级从高到低）：
- * 1) JVM 参数：-Dwork.calendar=JSON
- * 2) 默认：白班+夜班（见 WorkCalendarConfig.defaultDayAndNightShift()）
- *
- * 说明：
- * - 这里把“班次生成 slot”统一抽象为：一天 24 小时哪些小时可工作（BitSet）。
- * - Allocation 和评分器都只调用 WorkCalendar.isWorkingHour(hour)，避免重复规则。
+ * 现状：原先通过 JVM 参数 -Dwork.calendar=JSON。
+ * 为了服务化：增加 loadFromRequestCalendar(...)，允许每次请求注入日历（注意：静态全局，非并发安全）。
  */
 public final class WorkCalendar {
 
-    /** JVM 参数 key */
     public static final String WORK_CALENDAR_JSON_PROPERTY = "work.calendar";
 
-    /** 一天内 0..23 哪些小时可工作 */
     private static volatile BitSet workingHoursOfDay;
+    private static volatile Set<LocalDate> workDates;
+    private static volatile LocalDate timelineStartDate;
 
     private WorkCalendar() {
     }
 
     public static boolean isWorkingHour(int absoluteHour) {
-        BitSet bs = getWorkingHoursOfDay();
+        BitSet bs = workingHoursOfDay;
+        Set<LocalDate> dates = workDates;
+        LocalDate start = timelineStartDate;
+        if (bs == null || dates == null || start == null) {
+            return false;
+        }
+        if (dates.isEmpty()) {
+            // 你要求：workDates 为空时不工作
+            return false;
+        }
         int hod = Math.floorMod(absoluteHour, 24);
-        return bs.get(hod);
-    }
-
-    /** 如果运行中你改了 System properties，可调用它刷新（一般不需要）。 */
-    public static void reload() {
-        workingHoursOfDay = null;
-    }
-
-    private static BitSet getWorkingHoursOfDay() {
-        BitSet local = workingHoursOfDay;
-        if (local != null) {
-            return local;
+        if (!bs.get(hod)) {
+            return false;
         }
-        synchronized (WorkCalendar.class) {
-            if (workingHoursOfDay == null) {
-                WorkCalendarConfig cfg = loadConfig();
-                workingHoursOfDay = buildWorkingHoursOfDay(cfg);
+        int dayIndex = Math.floorDiv(absoluteHour, 24);
+        LocalDate date = start.plusDays(dayIndex);
+        return dates.contains(date);
+    }
+
+    /** 供服务层调用：从请求注入日历（静态全局，单线程使用没问题） */
+    public static void loadFromRequestCalendar(String timelineStartDateStr,
+                                               java.util.List<SolveRequest.ShiftDto> shifts,
+                                               java.util.List<String> workDateStrings) {
+        LocalDate start = LocalDate.parse(timelineStartDateStr);
+
+        BitSet bs = new BitSet(24);
+        if (shifts != null) {
+            for (SolveRequest.ShiftDto s : shifts) {
+                markRange(bs, s.startHour, s.endHour, true);
+                if (s.breaks != null) {
+                    for (SolveRequest.TimeRangeDto br : s.breaks) {
+                        markRange(bs, br.startHour, br.endHour, false);
+                    }
+                }
             }
-            return workingHoursOfDay;
         }
+
+        Set<LocalDate> dates = new HashSet<>();
+        if (workDateStrings != null) {
+            for (String d : workDateStrings) {
+                if (d == null || d.isBlank()) continue;
+                dates.add(LocalDate.parse(d.trim()));
+            }
+        }
+
+        // 原子替换缓存
+        WorkCalendar.timelineStartDate = start;
+        WorkCalendar.workingHoursOfDay = bs;
+        WorkCalendar.workDates = dates;
     }
 
-    private static WorkCalendarConfig loadConfig() {
-        String json = System.getProperty(WORK_CALENDAR_JSON_PROPERTY);
-        if (json == null || json.isBlank()) {
-            return WorkCalendarConfig.defaultDayAndNightShift();
-        }
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(json, WorkCalendarConfig.class);
-        } catch (Exception e) {
-            // 配置错误回退默认，避免程序直接挂
-            return WorkCalendarConfig.defaultDayAndNightShift();
-        }
-    }
 
-    /**
-     * 生成一天内 24 小时的可工作表。
-     *
-     * 规则：
-     * - 所有 shift 覆盖范围设置为可工作（支持跨天：end<=start）
-     * - shift 内 breaks 覆盖范围设置为不可工作（同样支持跨天）
-     */
+
+
     private static BitSet buildWorkingHoursOfDay(WorkCalendarConfig cfg) {
         BitSet bs = new BitSet(24);
-
         if (cfg.getShifts() == null || cfg.getShifts().isEmpty()) {
-            return bs; // 全不可工作
+            return bs;
         }
-
-        for (WorkCalendarConfig.Shift s : cfg.getShifts()) {
+        for (Object o : cfg.getShifts()) {
+            WorkCalendarConfig.Shift s = (WorkCalendarConfig.Shift) o;
             markRange(bs, s.getStartHour(), s.getEndHour(), true);
             if (s.getBreaks() != null) {
-                for (WorkCalendarConfig.TimeRange br : s.getBreaks()) {
+                for (Object brObj : s.getBreaks()) {
+                    WorkCalendarConfig.TimeRange br = (WorkCalendarConfig.TimeRange) brObj;
                     markRange(bs, br.getStartHour(), br.getEndHour(), false);
                 }
             }
@@ -90,18 +98,10 @@ public final class WorkCalendar {
         return bs;
     }
 
-    /**
-     * 支持跨天区间：
-     * - end > start ：同一天
-     * - end <= start：跨天（start..24 + 0..end）
-     */
     private static void markRange(BitSet bs, int startHour, int endHour, boolean value) {
         int start = clampHour(startHour);
         int end = clampHour(endHour);
-
-        if (start == end) {
-            return;
-        }
+        if (start == end) return;
 
         if (end > start) {
             bs.set(start, end, value);

@@ -157,7 +157,7 @@ public class ProjectJobSchedulingApp {
             schedule.setResourceRequirementList(new ArrayList<>());  // demo 不用资源需求
 
             Map<Long, Project> projectById = new HashMap<>();
-            for (DemoProject p : (List<DemoProject>) dto.projects) {
+            for (DemoProject p : dto.projects) {
                 Project project = new Project(p.id, p.releaseDate, p.criticalPathDuration);
                 project.setLocalResourceList(new ArrayList<>());
                 project.setJobList(new ArrayList<>());
@@ -168,7 +168,7 @@ public class ProjectJobSchedulingApp {
             Map<Long, Job> jobById = new HashMap<>();
             Map<Long, ExecutionMode> modeByJobId = new HashMap<>();
 
-            for (DemoJob j : (List<DemoJob>) dto.jobs) {
+            for (DemoJob j : dto.jobs) {
                 Project project = projectById.get(j.projectId);
                 Job job = new Job(j.id, project);
                 job.setJobType(JobType.valueOf(j.jobType));
@@ -188,9 +188,9 @@ public class ProjectJobSchedulingApp {
                 modeByJobId.put(j.id, mode);
             }
 
-            for (DemoJob j : (List<DemoJob>) dto.jobs) {
+            for (DemoJob j : dto.jobs) {
                 Job job = jobById.get(j.id);
-                for (Long succId : (List<Long>) j.successorJobIds) {
+                for (Long succId : j.successorJobIds) {
                     job.getSuccessorJobList().add(jobById.get(succId));
                 }
             }
@@ -244,13 +244,13 @@ public class ProjectJobSchedulingApp {
             }
 
             Map<Long, Item> itemById = new HashMap<>();
-            for (DemoItem i : (List<DemoItem>) dto.items) {
+            for (DemoItem i : dto.items) {
                 Item item = new Item(i.id, i.code, i.initialStock);
                 itemList.add(item);
                 itemById.put(i.id, item);
             }
 
-            for (DemoInventoryEvent e : (List<DemoInventoryEvent>) dto.inventoryEvents) {
+            for (DemoInventoryEvent e : dto.inventoryEvents) {
                 Allocation alloc = allocById.get(e.allocationId);
                 Item item = itemById.get(e.itemId);
                 InventoryEvent event = new InventoryEvent(e.id, alloc, item, e.quantity, InventoryEventTime.valueOf(e.timePolicy));
@@ -265,10 +265,10 @@ public class ProjectJobSchedulingApp {
     }
 
     public static class DemoDto {
-        public List projects;
-        public List jobs;
-        public List items;
-        public List inventoryEvents;
+        public List<DemoProject> projects;
+        public List<DemoJob> jobs;
+        public List<DemoItem> items;
+        public List<DemoInventoryEvent> inventoryEvents;
     }
 
     public static class DemoProject {
@@ -282,7 +282,7 @@ public class ProjectJobSchedulingApp {
         public long projectId;
         public String jobType;
         public int duration;
-        public List successorJobIds;
+        public List<Long> successorJobIds;
     }
 
     public static class DemoItem {

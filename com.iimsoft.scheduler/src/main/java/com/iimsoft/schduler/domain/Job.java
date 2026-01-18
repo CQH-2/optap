@@ -6,9 +6,6 @@ import org.optaplanner.examples.common.domain.AbstractPersistable;
 import org.optaplanner.examples.common.persistence.jackson.JacksonUniqueIdGenerator;
 
 import com.fasterxml.jackson.annotation.JsonIdentityInfo;
-import com.iimsoft.schduler.domain.ExecutionMode;
-import com.iimsoft.schduler.domain.JobType;
-import com.iimsoft.schduler.domain.Project;
 
 @JsonIdentityInfo(generator = JacksonUniqueIdGenerator.class)
 public class Job extends AbstractPersistable {
