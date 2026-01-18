@@ -10,6 +10,19 @@ import org.optaplanner.core.api.score.calculator.IncrementalScoreCalculator;
 
 import com.iimsoft.schduler.domain.Allocation;
 import com.iimsoft.schduler.domain.ExecutionMode;
+package com.iimsoft.schduler.score;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.optaplanner.core.api.score.buildin.hardmediumsoft.HardMediumSoftScore;
+import org.optaplanner.core.api.score.calculator.IncrementalScoreCalculator;
+
+import com.iimsoft.schduler.calendar.WorkCalendar;
+import com.iimsoft.schduler.domain.Allocation;
+import com.iimsoft.schduler.domain.ExecutionMode;
 import com.iimsoft.schduler.domain.InventoryEvent;
 import com.iimsoft.schduler.domain.InventoryEventTime;
 import com.iimsoft.schduler.domain.Item;
@@ -23,7 +36,7 @@ import com.iimsoft.schduler.domain.resource.Resource;
  * Incremental score calculator that supports:
  *
  * Hard:
- *  - Renewable resource capacity per day (same idea as ConstraintProvider version).
+ *  - Renewable resource capacity per time slot (hour) [only working hours consume capacity].
  *  - Nonrenewable resource capacity (total consumption <= capacity).
  *  - Route-C inventory: inventory balance of each Item must never drop below 0 over time.
  *
@@ -33,38 +46,39 @@ import com.iimsoft.schduler.domain.resource.Resource;
  * Soft:
  *  - Makespan: max sink end date.
  *
- * Why incremental?
- *  - Inventory "prefix sum over time" is much easier and faster to maintain via trackers (InventoryTracker).
+ * 时间单位说明（按最新需求）：
+ * - startDate/endDate/delay/duration 全部按“小时”理解
+ * - ExecutionMode.duration = 有效工时（只在 WorkCalendar.isWorkingHour==true 的小时计时）
  *
- * IMPORTANT:
- *  - We cache each InventoryEvent's last effective day (eventLastDayMap) to avoid retracting from a wrong day
- *    when the allocation schedule changes.
+ * 资源消耗策略（允许跨休息/跨夜班）：
+ * - Allocation 可能跨非工作小时，但这些小时不消耗 renewable 资源
+ * - 因此 renewable 资源占用只统计工作小时，不会因为跨休息导致 hard 违规
  */
-public class FactoryInventoryIncrementalScoreCalculator implements IncrementalScoreCalculator<Schedule, HardMediumSoftScore> {
+public class FactoryInventoryIncrementalScoreCalculator implements IncrementalScoreCalculator {
 
     // -----------------------------
     // Resource capacity tracking
     // -----------------------------
 
-    /** For renewable resources: resource -> (day -> usedCapacity) */
-    private final Map<Resource, Map<Integer, Integer>> renewableUsedMap = new HashMap<>();
+    /** For renewable resources: resource -> (hour -> usedCapacity) */
+    private final Map renewableUsedMap = new HashMap();
 
     /** For nonrenewable resources: resource -> usedTotal */
-    private final Map<Resource, Integer> nonrenewableUsedMap = new HashMap<>();
+    private final Map nonrenewableUsedMap = new HashMap();
 
     // -----------------------------
     // Inventory tracking (Route C)
     // -----------------------------
 
-    private Map<Item, InventoryTracker> inventoryTrackerMap;
-    private Map<Allocation, List<InventoryEvent>> allocationToEventListMap;
-    private Map<InventoryEvent, Integer> eventLastDayMap;
+    private Map inventoryTrackerMap;
+    private Map allocationToEventListMap;
+    private Map eventLastDayMap;
 
     // -----------------------------
     // Project delay + makespan tracking
     // -----------------------------
 
-    private Map<Project, Integer> projectSinkEndDateMap;
+    private Map projectSinkEndDateMap;
     private int maximumSinkEndDate;
 
     // -----------------------------
@@ -75,67 +89,59 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
     private int mediumScore;
     private int softScore;
 
-    // OptaPlanner calls resetWorkingSolution once and then variable change hooks many times.
     private Schedule workingSolution;
 
     @Override
     public void resetWorkingSolution(Schedule schedule) {
         this.workingSolution = schedule;
-        
+
         renewableUsedMap.clear();
         nonrenewableUsedMap.clear();
 
-        // Inventory trackers (global, cross-project)
-        inventoryTrackerMap = new HashMap<>();
+        inventoryTrackerMap = new HashMap();
         if (schedule.getItemList() != null) {
-            for (Item item : schedule.getItemList()) {
+            for (Object o : schedule.getItemList()) {
+                Item item = (Item) o;
                 inventoryTrackerMap.put(item, new InventoryTracker(item));
             }
         }
 
-        allocationToEventListMap = new HashMap<>();
-        eventLastDayMap = new HashMap<>();
+        allocationToEventListMap = new HashMap();
+        eventLastDayMap = new HashMap();
         if (schedule.getInventoryEventList() != null) {
-            for (InventoryEvent event : schedule.getInventoryEventList()) {
+            for (Object o : schedule.getInventoryEventList()) {
+                InventoryEvent event = (InventoryEvent) o;
                 if (event.getAllocation() == null) {
                     continue;
                 }
-                allocationToEventListMap.computeIfAbsent(event.getAllocation(), k -> new ArrayList<>()).add(event);
-                eventLastDayMap.put(event, null); // unknown until first insert
+                List list = (List) allocationToEventListMap.computeIfAbsent(event.getAllocation(), k -> new ArrayList());
+                list.add(event);
+                eventLastDayMap.put(event, null);
             }
         }
 
-        projectSinkEndDateMap = new HashMap<>();
+        projectSinkEndDateMap = new HashMap();
         maximumSinkEndDate = 0;
 
         hardScore = 0;
         mediumScore = 0;
         softScore = 0;
 
-        // Insert all allocations to initialize trackers and scores
         if (schedule.getAllocationList() != null) {
-            for (Allocation allocation : schedule.getAllocationList()) {
-                insert(allocation, schedule);
+            for (Object o : schedule.getAllocationList()) {
+                insert((Allocation) o, schedule);
             }
         }
     }
 
     @Override
-    public void beforeEntityAdded(Object entity) {
-        // no-op
-    }
+    public void beforeEntityAdded(Object entity) { }
 
     @Override
-    public void afterEntityAdded(Object entity) {
-        // Not used in typical solving of this example; still keep consistent.
-        // We cannot access Schedule here; OptaPlanner doesn't pass it.
-        // In this example the entity set is fixed, so ignore.
-    }
+    public void afterEntityAdded(Object entity) { }
 
     @Override
     public void beforeVariableChanged(Object entity, String variableName) {
-        // We need access to workingSolution for resourceRequirementList, but interface doesn't provide it here.
-        // Therefore we store it in a field when resetWorkingSolution is called.
         retract((Allocation) entity, workingSolution);
     }
 
@@ -150,37 +156,25 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
     }
 
     @Override
-    public void afterEntityRemoved(Object entity) {
-        // no-op
-    }
+    public void afterEntityRemoved(Object entity) { }
 
     private void insert(Allocation allocation, Schedule schedule) {
-        // A) Resource capacities (hard)
-        insertResourceCapacities(allocation, schedule);
-
-        // B) Inventory (hard)
+        insertResourceCapacities(allocation);
         insertInventory(allocation);
-
-        // C) Delay + makespan (medium/soft)
         insertProjectMetrics(allocation);
     }
 
     private void retract(Allocation allocation, Schedule schedule) {
-        // C) Delay + makespan first or last doesn't matter as long as symmetric; keep same order as insert but retract first.
         retractProjectMetrics(allocation);
-
-        // B) Inventory
         retractInventory(allocation);
-
-        // A) Resources
-        retractResourceCapacities(allocation, schedule);
+        retractResourceCapacities(allocation);
     }
 
     // ----------------------------------------------------------------
-    // A) Resource capacities
+    // A) Resource capacities (hour-based, shift-aware)
     // ----------------------------------------------------------------
 
-    private void insertResourceCapacities(Allocation allocation, Schedule schedule) {
+    private void insertResourceCapacities(Allocation allocation) {
         ExecutionMode mode = allocation.getExecutionMode();
         if (mode == null || allocation.getJobType() != JobType.STANDARD) {
             return;
@@ -191,26 +185,31 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
             return;
         }
 
-        // For each resource requirement of the chosen mode, update renewable per-day usage or nonrenewable total usage.
         if (mode.getResourceRequirementList() == null) {
             return;
         }
-        for (ResourceRequirement rr : mode.getResourceRequirementList()) {
+
+        for (Object obj : mode.getResourceRequirementList()) {
+            ResourceRequirement rr = (ResourceRequirement) obj;
             Resource resource = rr.getResource();
             int req = rr.getRequirement();
 
             if (resource.isRenewable()) {
-                Map<Integer, Integer> usedPerDay = renewableUsedMap.computeIfAbsent(resource, r -> new HashMap<>());
-                for (int day = start; day < end; day++) {
-                    int oldUsed = usedPerDay.getOrDefault(day, 0);
+                Map usedPerHour = (Map) renewableUsedMap.computeIfAbsent(resource, r -> new HashMap());
+                for (int hour = start; hour < end; hour++) {
+                    // 关键：只在工作小时消耗资源（白班+夜班由 WorkCalendarConfig 决定）
+                    if (!WorkCalendar.isWorkingHour(hour)) {
+                        continue;
+                    }
+                    int oldUsed = (int) usedPerHour.getOrDefault(hour, 0);
                     int newUsed = oldUsed + req;
 
                     hardScore += renewableOveruseDelta(resource, oldUsed, newUsed);
 
-                    usedPerDay.put(day, newUsed);
+                    usedPerHour.put(hour, newUsed);
                 }
             } else {
-                int oldUsed = nonrenewableUsedMap.getOrDefault(resource, 0);
+                int oldUsed = (int) nonrenewableUsedMap.getOrDefault(resource, 0);
                 int newUsed = oldUsed + req;
 
                 hardScore += nonrenewableOveruseDelta(resource, oldUsed, newUsed);
@@ -220,7 +219,7 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         }
     }
 
-    private void retractResourceCapacities(Allocation allocation, Schedule schedule) {
+    private void retractResourceCapacities(Allocation allocation) {
         ExecutionMode mode = allocation.getExecutionMode();
         if (mode == null || allocation.getJobType() != JobType.STANDARD) {
             return;
@@ -234,29 +233,34 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         if (mode.getResourceRequirementList() == null) {
             return;
         }
-        for (ResourceRequirement rr : mode.getResourceRequirementList()) {
+
+        for (Object obj : mode.getResourceRequirementList()) {
+            ResourceRequirement rr = (ResourceRequirement) obj;
             Resource resource = rr.getResource();
             int req = rr.getRequirement();
 
             if (resource.isRenewable()) {
-                Map<Integer, Integer> usedPerDay = renewableUsedMap.get(resource);
-                if (usedPerDay == null) {
+                Map usedPerHour = (Map) renewableUsedMap.get(resource);
+                if (usedPerHour == null) {
                     continue;
                 }
-                for (int day = start; day < end; day++) {
-                    int oldUsed = usedPerDay.getOrDefault(day, 0);
+                for (int hour = start; hour < end; hour++) {
+                    if (!WorkCalendar.isWorkingHour(hour)) {
+                        continue;
+                    }
+                    int oldUsed = (int) usedPerHour.getOrDefault(hour, 0);
                     int newUsed = oldUsed - req;
 
                     hardScore += renewableOveruseDelta(resource, oldUsed, newUsed);
 
                     if (newUsed == 0) {
-                        usedPerDay.remove(day);
+                        usedPerHour.remove(hour);
                     } else {
-                        usedPerDay.put(day, newUsed);
+                        usedPerHour.put(hour, newUsed);
                     }
                 }
             } else {
-                int oldUsed = nonrenewableUsedMap.getOrDefault(resource, 0);
+                int oldUsed = (int) nonrenewableUsedMap.getOrDefault(resource, 0);
                 int newUsed = oldUsed - req;
 
                 hardScore += nonrenewableOveruseDelta(resource, oldUsed, newUsed);
@@ -270,21 +274,13 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         }
     }
 
-    /**
-     * Computes change in hardScore due to changing used from oldUsed to newUsed for a renewable resource at ONE day.
-     * Score convention: hardScore is <= 0; overuse of X => -X.
-     */
     private int renewableOveruseDelta(Resource resource, int oldUsed, int newUsed) {
         int cap = resource.getCapacity();
         int oldOver = Math.max(0, oldUsed - cap);
         int newOver = Math.max(0, newUsed - cap);
-        // Overuse increases => hardScore becomes more negative
         return -(newOver - oldOver);
     }
 
-    /**
-     * Computes change in hardScore due to changing usedTotal for a nonrenewable resource.
-     */
     private int nonrenewableOveruseDelta(Resource resource, int oldUsed, int newUsed) {
         int cap = resource.getCapacity();
         int oldOver = Math.max(0, oldUsed - cap);
@@ -293,52 +289,55 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
     }
 
     // ----------------------------------------------------------------
-    // B) Inventory
+    // B) Inventory (eventDate is hour-based via Allocation)
     // ----------------------------------------------------------------
 
     private void insertInventory(Allocation allocation) {
-        List<InventoryEvent> events = allocationToEventListMap.get(allocation);
+        List events = (List) allocationToEventListMap.get(allocation);
         if (events == null) {
             return;
         }
-        for (InventoryEvent event : events) {
-            Integer day = computeEventDay(event);
-            eventLastDayMap.put(event, day);
+        for (Object o : events) {
+            InventoryEvent event = (InventoryEvent) o;
 
-            if (day == null) {
+            Integer t = computeEventTime(event); // hour
+            eventLastDayMap.put(event, t);
+
+            if (t == null) {
                 continue;
             }
             InventoryTracker tracker = getOrCreateTracker(event.getItem());
 
-            // Adjust score by removing old contribution, applying delta, then adding new contribution
             hardScore -= tracker.getHardScoreContribution();
-            tracker.addDelta(day, event.getQuantity());
+            tracker.addDelta(t, event.getQuantity());
             hardScore += tracker.getHardScoreContribution();
         }
     }
 
     private void retractInventory(Allocation allocation) {
-        List<InventoryEvent> events = allocationToEventListMap.get(allocation);
+        List events = (List) allocationToEventListMap.get(allocation);
         if (events == null) {
             return;
         }
-        for (InventoryEvent event : events) {
-            Integer lastDay = eventLastDayMap.get(event); // cached, safe
+        for (Object o : events) {
+            InventoryEvent event = (InventoryEvent) o;
+
+            Integer lastT = (Integer) eventLastDayMap.get(event);
             eventLastDayMap.put(event, null);
 
-            if (lastDay == null) {
+            if (lastT == null) {
                 continue;
             }
             InventoryTracker tracker = getOrCreateTracker(event.getItem());
 
             hardScore -= tracker.getHardScoreContribution();
-            tracker.removeDelta(lastDay, event.getQuantity());
+            tracker.removeDelta(lastT, event.getQuantity());
             hardScore += tracker.getHardScoreContribution();
         }
     }
 
     private InventoryTracker getOrCreateTracker(Item item) {
-        InventoryTracker tracker = inventoryTrackerMap.get(item);
+        InventoryTracker tracker = (InventoryTracker) inventoryTrackerMap.get(item);
         if (tracker == null) {
             tracker = new InventoryTracker(item);
             inventoryTrackerMap.put(item, tracker);
@@ -346,19 +345,17 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         return tracker;
     }
 
-    private Integer computeEventDay(InventoryEvent event) {
+    private Integer computeEventTime(InventoryEvent event) {
         if (event.getAllocation() == null) {
             return null;
         }
-        if (event.getTimePolicy() == InventoryEventTime.START) {
-            return event.getAllocation().getStartDate();
-        } else {
-            return event.getAllocation().getEndDate();
-        }
+        return event.getTimePolicy() == InventoryEventTime.START
+                ? event.getAllocation().getStartDate()
+                : event.getAllocation().getEndDate();
     }
 
     // ----------------------------------------------------------------
-    // C) Delay + makespan
+    // C) Delay + makespan (hour-based)
     // ----------------------------------------------------------------
 
     private void insertProjectMetrics(Allocation allocation) {
@@ -372,11 +369,9 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         Project project = allocation.getProject();
         projectSinkEndDateMap.put(project, endDate);
 
-        // medium: delay = max(0, end - criticalPathEnd)
         int delay = Math.max(0, endDate - allocation.getProjectCriticalPathEndDate());
         mediumScore -= delay;
 
-        // soft: makespan = max sink end
         if (endDate > maximumSinkEndDate) {
             softScore -= (endDate - maximumSinkEndDate);
             maximumSinkEndDate = endDate;
@@ -398,11 +393,11 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         mediumScore += delay;
 
         if (endDate == maximumSinkEndDate) {
-            // recompute max
             int newMax = 0;
-            for (Integer v : projectSinkEndDateMap.values()) {
-                if (v > newMax) {
-                    newMax = v;
+            for (Object v : projectSinkEndDateMap.values()) {
+                int vv = (Integer) v;
+                if (vv > newMax) {
+                    newMax = vv;
                 }
             }
             softScore += (maximumSinkEndDate - newMax);
@@ -410,6 +405,11 @@ public class FactoryInventoryIncrementalScoreCalculator implements IncrementalSc
         }
     }
 
+    @Override
+    public HardMediumSoftScore calculateScore() {
+        return HardMediumSoftScore.of(hardScore, mediumScore, softScore);
+    }
+}
     @Override
     public HardMediumSoftScore calculateScore() {
         return HardMediumSoftScore.of(hardScore, mediumScore, softScore);

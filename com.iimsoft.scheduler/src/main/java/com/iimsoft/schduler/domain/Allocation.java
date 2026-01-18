@@ -10,10 +10,6 @@ import org.optaplanner.core.api.domain.variable.PlanningVariable;
 import org.optaplanner.core.api.domain.variable.ShadowVariable;
 import org.optaplanner.examples.common.domain.AbstractPersistable;
 import org.optaplanner.examples.common.persistence.jackson.JacksonUniqueIdGenerator;
-import com.iimsoft.schduler.domain.ExecutionMode;
-import com.iimsoft.schduler.domain.Job;
-import com.iimsoft.schduler.domain.JobType;
-import com.iimsoft.schduler.domain.Project;
 import com.iimsoft.schduler.domain.solver.DelayStrengthComparator;
 import com.iimsoft.schduler.domain.solver.ExecutionModeStrengthWeightFactory;
 import com.iimsoft.schduler.domain.solver.NotSourceOrSinkAllocationFilter;
@@ -21,6 +17,7 @@ import com.iimsoft.schduler.domain.solver.PredecessorsDoneDateUpdatingVariableLi
 
 import com.fasterxml.jackson.annotation.JsonIdentityInfo;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.iimsoft.schduler.calendar.WorkCalendar;
 
 @PlanningEntity(pinningFilter = NotSourceOrSinkAllocationFilter.class)
 @JsonIdentityInfo(generator = JacksonUniqueIdGenerator.class)
@@ -35,7 +32,11 @@ public class Allocation extends AbstractPersistable {
 
     // Planning variables: changes during planning, between score calculations.
     private ExecutionMode executionMode;
-    private Integer delay; // In days
+    /**
+     * 注意：原示例注释是 In days。
+     * 按你最新需求（小时 + 班次），这里应当按“小时”理解 delay。
+     */
+    private Integer delay; // In hours
 
     // Shadow variables
     private Integer predecessorsDoneDate;
@@ -131,11 +132,28 @@ public class Allocation extends AbstractPersistable {
 
     @JsonIgnore
     public Integer getEndDate() {
-        if (predecessorsDoneDate == null) {
+        Integer start = getStartDate();
+        if (start == null) {
             return null;
         }
-        return predecessorsDoneDate + (delay == null ? 0 : delay)
-                + (executionMode == null ? 0 : executionMode.getDuration());
+        int requiredWorkingHours = (executionMode == null ? 0 : executionMode.getDuration());
+        if (requiredWorkingHours <= 0) {
+            return start;
+        }
+
+        int t = start;
+        int done = 0;
+
+        // 防止配置错误导致死循环：最多推 365 天
+        int safety = 24 * 365;
+
+        while (done < requiredWorkingHours && safety-- > 0) {
+            if (WorkCalendar.isWorkingHour(t)) {
+                done++;
+            }
+            t++;
+        }
+        return t;
     }
 
     @JsonIgnore
@@ -170,7 +188,8 @@ public class Allocation extends AbstractPersistable {
     @ValueRangeProvider
     @JsonIgnore
     public CountableValueRange<Integer> getDelayRange() {
-        return ValueRangeFactory.createIntValueRange(0, 500);
+        // 小时粒度建议把 range 加大一点，否则容易卡住
+        return ValueRangeFactory.createIntValueRange(0, 24 * 30); // 0..720 小时
     }
 
 }
