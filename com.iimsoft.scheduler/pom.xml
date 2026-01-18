@@ -75,7 +75,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.0</version>
                 <configuration>
-                    <mainClass>com.iimsoft.schduler.app.ProjectJobSchedulingApp</mainClass>
+                    <mainClass>com.iimsoft.schduler.app.SchedulingSolveServiceApp</mainClass>
                 </configuration>
             </plugin>
 
